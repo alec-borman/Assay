@@ -1,3 +1,5 @@
+// src/bundle/repomix.rs
+
 use crate::bundle::Bundle;
 use anyhow::{anyhow, Result};
 use sha2::{Digest, Sha256};
@@ -33,10 +35,14 @@ fn extract_files(content: &str) -> Result<BTreeMap<String, String>> {
         .find("<files>")
         .ok_or_else(|| anyhow!("missing <files> block"))?
         + "<files>".len();
+        
+    // Use rfind to get the true end of the <files> block, avoiding literal
+    // "</files>" strings that might appear inside the source files themselves.
     let files_end = content[files_start..]
-        .find("</files>")
+        .rfind("</files>")
         .ok_or_else(|| anyhow!("missing </files> terminator"))?
         + files_start;
+        
     let files_block = &content[files_start..files_end];
 
     let mut cursor = 0;
@@ -54,23 +60,30 @@ fn extract_files(content: &str) -> Result<BTreeMap<String, String>> {
 
         let body_start = tag_end + 1;
 
-        // The real closing </file> is the LAST one before the
-        // next <file or the end of the files block. Any </file>
-        // earlier in the slice is inside the file's content.
-        let next_block = files_block[body_start..]
-            .find("<file ")
-            .map(|p| p + body_start)
-            .or_else(|| {
-                files_block[body_start..]
-                    .find("</files>")
-                    .map(|p| p + body_start)
-            })
-            .unwrap_or(files_block.len());
+        // Find the matching </file>, but we MUST skip over any CDATA blocks
+        // because literal strings like "</file>" might appear inside them.
+        let mut search_cursor = body_start;
+        let body_end = loop {
+            let next_cdata = files_block[search_cursor..].find("<![CDATA[");
+            let next_close = files_block[search_cursor..].find("</file>");
 
-        let body_end = files_block[body_start..next_block]
-            .rfind("</file>")
-            .ok_or_else(|| anyhow!("missing </file> for path {}", path))?
-            + body_start;
+            match (next_cdata, next_close) {
+                // If there's a CDATA block before the </file>, we must skip past it
+                (Some(cdata_pos), Some(close_pos)) if cdata_pos < close_pos => {
+                    let cdata_start = search_cursor + cdata_pos;
+                    let cdata_close = files_block[cdata_start..]
+                        .find("]]>")
+                        .ok_or_else(|| anyhow!("unterminated CDATA for path {}", path))?;
+                    search_cursor = cdata_start + cdata_close + "]]>".len();
+                }
+                // If there's a </file> and it comes before any CDATA (or there is no CDATA)
+                (_, Some(close_pos)) => {
+                    break search_cursor + close_pos;
+                }
+                // We ran out of </file> tags
+                (_, None) => return Err(anyhow!("missing </file> for path {}", path)),
+            }
+        };
 
         let body = &files_block[body_start..body_end];
         let content_str = extract_cdata(body);
@@ -93,15 +106,22 @@ fn extract_path_attr(attr: &str) -> Result<String> {
         .and_then(|s| s.strip_suffix('"'))
         .ok_or_else(|| anyhow!("expected quoted path in: {}", attr))?;
         
-    // Normalize Windows backslashes to forward slashes
+    // Normalize Windows backslashes to forward slashes for cross-platform determinism
     Ok(value.replace('\\', "/"))
 }
 
 fn extract_cdata(body: &str) -> String {
     const OPEN: &str = "<![CDATA[";
     const CLOSE: &str = "]]>";
+    
+    if !body.contains(OPEN) {
+        return body.trim().to_string();
+    }
+
     let mut result = String::new();
     let mut cursor = 0;
+    
+    // Stitch multiple CDATA blocks together (Repomix escapes `]]>` as `]]]]><![CDATA[>`)
     while let Some(open_rel) = body[cursor..].find(OPEN) {
         let content_start = cursor + open_rel + OPEN.len();
         let close_rel = match body[content_start..].find(CLOSE) {
@@ -112,7 +132,22 @@ fn extract_cdata(body: &str) -> String {
         result.push_str(&body[content_start..content_end]);
         cursor = content_end + CLOSE.len();
     }
-    result
+    
+    // Strip only the single leading and trailing newline inserted by Repomix around the content
+    let mut final_result = result.as_str();
+    if let Some(stripped) = final_result.strip_prefix("\r\n") {
+        final_result = stripped;
+    } else if let Some(stripped) = final_result.strip_prefix('\n') {
+        final_result = stripped;
+    }
+
+    if let Some(stripped) = final_result.strip_suffix("\r\n") {
+        final_result = stripped;
+    } else if let Some(stripped) = final_result.strip_suffix('\n') {
+        final_result = stripped;
+    }
+    
+    final_result.to_string()
 }
 
 fn compute_fingerprint(files: &BTreeMap<String, String>) -> String {
