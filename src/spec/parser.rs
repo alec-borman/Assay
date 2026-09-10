@@ -111,6 +111,7 @@ pub fn parse_file(path: &std::path::Path) -> Result<Spec> {
     let mut lang = None;
     let mut fixtures = Vec::new();
     let mut witnesses = Vec::new();
+    let mut objectives = Vec::new();
     
     let mut i = 0;
     while i < lines.len() {
@@ -179,6 +180,42 @@ pub fn parse_file(path: &std::path::Path) -> Result<Spec> {
                 witnesses.push(Witness { name: w_name, kind, body });
                 i = next_i;
             }
+            "objective" => {
+                if !rest.ends_with('{') {
+                    return Err(anyhow::anyhow!("Expected '{{' at the end of objective at line {}", i + 1));
+                }
+                let (body, next_i) = collect_block(&lines, i + 1)?;
+                for line in body.lines() {
+                    let trimmed = line.trim();
+                    if trimmed.is_empty() || trimmed.starts_with('#') {
+                        continue;
+                    }
+                    let (kind_str, o_rest) = match trimmed.split_once(|c: char| c.is_whitespace()) {
+                        Some((k, r)) => (k, r.trim()),
+                        None => return Err(anyhow::anyhow!("Invalid objective line: {}", trimmed)),
+                    };
+                    let kind = match kind_str {
+                        "minimises" => crate::spec::ObjectiveKind::Minimise,
+                        "maximises" => crate::spec::ObjectiveKind::Maximise,
+                        _ => return Err(anyhow::anyhow!("Unknown objective kind: {}", kind_str)),
+                    };
+                    
+                    let (o_name, mut o_rest2) = split_quoted(o_rest)?;
+                    o_rest2 = o_rest2.trim();
+                    
+                    let mut target = None;
+                    if o_rest2.starts_with("target ") {
+                        let t_str = o_rest2["target ".len()..].trim();
+                        let t: f64 = t_str.parse().map_err(|e| anyhow::anyhow!("Failed to parse objective target: {}", e))?;
+                        target = Some(t);
+                    } else if !o_rest2.is_empty() {
+                        return Err(anyhow::anyhow!("Unexpected tokens in objective line: {}", o_rest2));
+                    }
+                    
+                    objectives.push(crate::spec::Objective { kind, name: o_name, target });
+                }
+                i = next_i;
+            }
             _ => {
                 return Err(anyhow::anyhow!("Unknown keyword at line {}: {}", i + 1, keyword));
             }
@@ -202,5 +239,6 @@ pub fn parse_file(path: &std::path::Path) -> Result<Spec> {
         lang,
         fixtures,
         witnesses,
+        objectives,
     })
 }
