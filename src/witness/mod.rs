@@ -2,10 +2,17 @@ pub mod result;
 
 pub use result::*;
 
-#[derive(Debug, Clone)]
+use serde::{Serialize, Deserialize};
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum Kind {
+    Hard,
+    Soft(f64),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Witness {
     pub name: String,
-    pub language: String,
-    pub expression: String,
-    pub mode: crate::spec::WitnessMode,
+    pub kind: Kind,
+    pub body: String,
 }

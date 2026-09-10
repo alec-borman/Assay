@@ -95,6 +95,10 @@ fn main() -> Result<()> {
         Commands::Schema => {
             println!("Outputting schema...");
         }
+        Commands::Version => {
+            println!("assay {}", env!("CARGO_PKG_VERSION"));
+            std::process::exit(0);
+        }
     }
 
     Ok(())
