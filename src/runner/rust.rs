@@ -34,30 +34,28 @@ impl Runner for RustRunner {
             ));
         }
 
+        for (path, content) in &bundle.files {
+            let p = dir.join(path);
+            if let Some(parent) = p.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            fs::write(&p, content)?;
+        }
+
         let target = &spec.targets[0];
         let content = bundle.files.get(target).ok_or_else(|| {
             anyhow!("target '{}' not found in bundle", target)
         })?;
 
-        // Write the target file preserving its path.
-        let target_path = dir.join(target);
-        if let Some(parent) = target_path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-
-        // Inject the witness module at the end of the target.
         let injected = inject_witness_module(content, spec, witnesses);
-
-        // Prepend #![allow(...)] attributes to silence warnings from
-        // the witness module. Only if the file does not already start
-        // with a crate-level attribute block.
         let final_content = wrap_with_crate_attrs(&injected);
 
+        let target_path = dir.join(target);
         fs::write(&target_path, final_content)?;
 
-        // Write Cargo.toml declaring a lib crate with the target path.
-        let cargo_toml = format!(
-            r#"[package]
+        if !bundle.files.contains_key("Cargo.toml") {
+            let cargo_toml = format!(
+                r#"[package]
 name = "assay_temp_verify"
 version = "0.0.0"
 edition = "2021"
@@ -69,9 +67,10 @@ path = "{}"
 [profile.test]
 debug = false
 "#,
-            target
-        );
-        fs::write(dir.join("Cargo.toml"), cargo_toml)?;
+                target
+            );
+            fs::write(dir.join("Cargo.toml"), cargo_toml)?;
+        }
 
         Ok(())
     }

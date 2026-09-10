@@ -1,0 +1,5582 @@
+This file is a merged representation of the entire codebase, combined into a single document by Repomix.
+
+<file_summary>
+This section contains a summary of this file.
+
+<purpose>
+This file contains a packed representation of the entire repository's contents.
+It is designed to be easily consumable by AI systems for analysis, code review,
+or other automated processes.
+</purpose>
+
+<file_format>
+The content is organized as follows:
+1. This summary section
+2. Repository information
+3. Directory structure
+4. Repository files (if enabled)
+5. Multiple file entries, each consisting of:
+  - File path as an attribute
+  - Full contents of the file
+</file_format>
+
+<usage_guidelines>
+- This file should be treated as read-only. Any changes should be made to the
+  original repository files, not this packed version.
+- When processing this file, use the file path to distinguish
+  between different files in the repository.
+- Be aware that this file may contain sensitive information. Handle it with
+  the same level of security as you would the original repository.
+</usage_guidelines>
+
+<notes>
+- Some files may have been excluded based on .gitignore rules and Repomix's configuration
+- Binary files are not included in this packed representation. Please refer to the Repository Structure section for a complete list of file paths, including binary files
+- Files matching patterns in .gitignore are excluded
+- Files matching default ignore patterns are excluded
+- Files are sorted by Git change count (files with more changes are at the bottom)
+</notes>
+
+</file_summary>
+
+<directory_structure>
+.github/
+  workflows/
+    ci.yml
+docs/
+  directive.schema.json
+  grammar.ebnf
+  report.schema.json
+  spec.md
+examples/
+  duration/
+    src/
+      lib.rs
+    duration.assay
+src/
+  bundle/
+    json.rs
+    markdown.rs
+    mod.rs
+    repomix.rs
+  oracle/
+    providers/
+      anthropic.rs
+      gemini.rs
+      mod.rs
+      openai.rs
+    client.rs
+    directive.rs
+    mod.rs
+  orchestration/
+    mod.rs
+    orchestrator.rs
+  report/
+    builder.rs
+    fingerprint.rs
+    mod.rs
+  runner/
+    mod.rs
+    node.rs
+    python.rs
+    rust.rs
+    shell.rs
+  spec/
+    ast.rs
+    mod.rs
+    parser.rs
+  witness/
+    mod.rs
+    result.rs
+  App.tsx
+  index.css
+  lib.rs
+  main.rs
+  main.tsx
+  verify.rs
+tests/
+  bundle_parser.rs
+  end_to_end.rs
+  report_builder.rs
+  report_fingerprint.rs
+  rust_runner.rs
+  spec_parser.rs
+.env.example
+.gitignore
+assay.assay
+Cargo.toml
+index.html
+LICENSE-APACHE
+LICENSE-MIT
+metadata.json
+package.json
+README.md
+SPEC.md
+tsconfig.json
+vite.config.ts
+</directory_structure>
+
+<files>
+This section contains the contents of the repository's files.
+
+<file path=".github/workflows/ci.yml">
+name: CI
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    - name: Build
+      run: cargo build --verbose
+    - name: Run tests
+      run: cargo test --verbose
+</file>
+
+<file path="docs/directive.schema.json">
+
+</file>
+
+<file path="docs/grammar.ebnf">
+
+</file>
+
+<file path="docs/report.schema.json">
+
+</file>
+
+<file path="docs/spec.md">
+# ASSAY
+## A Universal Verifier and Oracle Protocol for AI-Assisted Software Development
+
+**Version:** 2.0 (Specification)
+**License:** MIT OR Apache-2.0
+**Status:** Normative
+
+---
+
+## 0. Preface
+
+Assay is a program that turns source code into a verifiable mathematical artifact.
+
+It accepts two inputs:
+
+1. A **spec** — a text file listing witnesses (claims about behavior) that the code must satisfy.
+2. A **bundle** — a packed representation of an entire repository (typically produced by Repomix).
+
+It produces one output:
+
+3. A **report** — a deterministic, structured summary of which witnesses pass, which fail, and by how much.
+
+Assay is written in Rust. It shells out to whatever test runner the target language uses. It does not assume the target is Rust, or TypeScript, or Python. It assumes only that the target has some way to run a check and return a boolean.
+
+Assay is intended to sit in the middle of an AI-assisted development loop:
+
+```
+          ┌───────────────────────┐
+          │  AI Studio Implementer│
+          │  (writes code)        │
+          └───────────┬───────────┘
+                      │ commits
+                      ▼
+          ┌───────────────────────┐
+          │  GitHub Repository    │
+          └───────────┬───────────┘
+                      │ pull
+                      ▼
+          ┌───────────────────────┐
+          │  Repomix              │
+          │  (packs to one file)  │
+          └───────────┬───────────┘
+                      │ bundle
+                      ▼
+          ┌───────────────────────┐      ┌──────────────────┐
+          │  ASSAY                │─────▶│  report          │
+          │  (verifies)           │      └────────┬─────────┘
+          └───────────────────────┘               │
+                                                  ▼
+                                        ┌──────────────────┐
+                                        │  Oracle          │
+                                        │  (frontier model)│
+                                        └────────┬─────────┘
+                                                  │ directive
+                                                  ▼
+                                        back to Implementer
+```
+
+The loop has three agents:
+
+- **Implementer** — writes code. Typically an AI Studio agent.
+- **Assay** — verifies code against the spec. Deterministic, fast, local.
+- **Oracle** — reads Assay's report and issues the next directive. A frontier LLM.
+
+The user (a human) writes the spec and observes the loop. That is the entire system.
+
+This document is self-contained. It assumes no knowledge of any prior system.
+
+---
+
+## 1. Design Principles
+
+### 1.1 Verification is deterministic
+
+Two runs of Assay over the same spec and same bundle produce identical reports. This is enforced by:
+
+- No wall-clock time in the report (only in logs).
+- No environment-dependent behavior (locale, timezone, PATH) in report content.
+- All maps serialized in key-sorted order.
+- All floating-point values rounded to a fixed precision (six decimal places).
+- A fingerprint over `{spec_hash, bundle_hash, report_body}` included in every report.
+
+### 1.2 Verification is language-agnostic
+
+Assay does not parse source code. It does not know what language the target is in. It reads a spec, extracts witness definitions written in the target's own language, injects them into a temporary file or runner configuration, and invokes the runner. The runner determines pass/fail.
+
+### 1.3 Verification is complete over the spec
+
+If a witness is in the spec, it is checked. There is no way to make a witness disappear from the report without removing it from the spec. Missing witnesses are failures.
+
+### 1.4 The oracle is stateless
+
+The oracle does not maintain its own history. Assay's report contains everything the oracle needs: current state, delta from the previous state, and the previous directive. The oracle's output is a directive; the directive is written to disk; the next invocation of the oracle reads it.
+
+### 1.5 The spec is the contract
+
+The user writes the spec. The implementer writes the code. The two never share a file. The only file they both reference is the bundle, which is generated, not authored.
+
+---
+
+## 2. Concepts
+
+### 2.1 Spec
+
+A **spec** is a text file. It declares:
+
+- A **target** — which files in the bundle the spec applies to.
+- A **runner** — the command that performs the check.
+- A set of **witnesses** — claims that must be true.
+- A set of **objectives** — soft goals that shape refinement.
+- A set of **fixtures** — shared data used by witnesses.
+
+A witness is either a **hard** witness (must pass) or a **soft** witness (contributes to the objective score).
+
+### 2.2 Bundle
+
+A **bundle** is a single file containing the whole repository, produced by a packer such as Repomix. It has:
+
+- A header with metadata.
+- A directory listing.
+- Each file's content, tagged with its path.
+
+Assay understands the Repomix format natively. Other packers are supported via adapters.
+
+### 2.3 Witness
+
+A **witness** is a claim about the bundle. Formally:
+
+```
+witness w = (name, language, expression, expectation)
+```
+
+Where:
+
+- `name` — a unique identifier.
+- `language` — the language the expression is written in (`rust`, `python`, `typescript`, …).
+- `expression` — a snippet of code in that language.
+- `expectation` — `pass` if the expression must evaluate to true, `fail` if it must evaluate to false.
+
+Assay does not interpret the expression. It hands it to the runner.
+
+### 2.4 Runner
+
+A **runner** is an external program Assay invokes to execute witnesses. Every runner implements the same contract:
+
+- Accepts a set of witnesses on stdin (or via temp file).
+- Returns exit code 0 if all hard witnesses pass, non-zero otherwise.
+- Emits a machine-readable summary to stdout.
+
+Assay ships with runners for Rust, Python, Node.js, and a generic shell runner.
+
+### 2.5 Objective
+
+An **objective** is a soft goal. Witnesses marked as `soft` contribute to it. The objective value is a real number in `[0, 1]`:
+
+```
+objective = Σ (weightᵢ × passedᵢ) / Σ weightᵢ
+```
+
+Where `passedᵢ` is 1 if the soft witness passes, 0 otherwise.
+
+A spec may also declare **measured objectives** — values emitted by the runner as numbers (e.g., "build time in milliseconds"), against which a target and a direction are specified.
+
+### 2.6 Report
+
+A **report** is Assay's output. It is a JSON document. It contains:
+
+- The spec's fingerprint.
+- The bundle's fingerprint.
+- For each witness: name, status, and on failure, the runner's diagnostic.
+- The objective value, if any.
+- The delta from the previous report, if a previous report is available.
+- The previous directive, echoed back.
+- A signed fingerprint over the whole report.
+
+### 2.7 Directive
+
+A **directive** is the oracle's output. It is a JSON document. It contains:
+
+- A target: which file(s) the implementer should modify.
+- An intent: a one-sentence description of what the change should accomplish.
+- Constraints: witnesses that must continue to pass.
+- A rationale: why this directive is the right next step.
+
+### 2.8 Loop
+
+A **loop** is one full cycle:
+
+```
+directive → implementer → bundle → assay → report → oracle → directive
+```
+
+Assay does not manage the loop. It produces reports. The oracle produces directives. The implementer consumes directives and produces bundles. The loop is the user's to orchestrate, though Assay provides a `assay loop` convenience command.
+
+---
+
+## 3. Architecture
+
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│                            ASSAY BINARY                              │
+│                                                                      │
+│  ┌─────────────┐    ┌──────────────┐    ┌──────────────┐             │
+│  │  bundle     │    │  spec        │    │  runner      │             │
+│  │  parser     │    │  parser      │    │  dispatcher  │             │
+│  └──────┬──────┘    └──────┬───────┘    └──────┬───────┘             │
+│         │                  │                   │                     │
+│         └──────────┬───────┴───────────┬───────┘                     │
+│                    ▼                   ▼                             │
+│              ┌──────────────┐    ┌──────────────┐                    │
+│              │  verifier    │    │  reporter    │                    │
+│              │  (core)      │───▶│  (JSON out)  │                    │
+│              └──────────────┘    └──────────────┘                    │
+│                                                                      │
+│              ┌──────────────┐    ┌──────────────┐                    │
+│              │  oracle      │    │  loop        │                    │
+│              │  client      │    │  orchestrator│                    │
+│              └──────────────┘    └──────────────┘                    │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+Assay is a single Rust binary. It has no persistent state. All state lives in files the user can see: specs, bundles, reports, directives.
+
+---
+
+## 4. The Spec Format
+
+### 4.1 Syntax
+
+A spec is a plain-text file with the extension `.assay`. It is line-oriented. Leading whitespace is significant only inside witness bodies.
+
+```
+# Duration parser — verifies src/duration.rs
+
+spec "duration"
+
+target "src/duration.rs"
+runner rust
+runners_args ["cargo", "test", "--quiet", "--", "--nocapture"]
+
+lang rust
+
+fixture VALID {
+    const VALID: &[(&str, u64)] = &[
+        ("1s", 1),
+        ("30s", 30),
+        ("1m", 60),
+        ("2m30s", 150),
+    ];
+}
+
+witness "empty returns none" hard {
+    parse_duration("").is_none()
+}
+
+witness "compound minutes-seconds" hard {
+    parse_duration("2m30s") == Ok(150)
+}
+
+witness "all valid inputs parse" hard {
+    VALID.iter().all(|(s, n)| parse_duration(s) == Ok(*n))
+}
+
+witness "no panics on garbage" soft weight 0.5 {
+    ["", "-", "abc", "1h30"].iter().all(|s| std::panic::catch_unwind(|| parse_duration(s)).is_ok())
+}
+
+objective {
+    minimises "lines_of_code"
+    maximises "test_coverage"
+}
+```
+
+### 4.2 Directives
+
+| Directive | Meaning |
+|---|---|
+| `spec "name"` | Names the spec. Required. |
+| `target "path"` | The file(s) in the bundle this spec applies to. Glob patterns allowed. Required. |
+| `runner <name>` | The runner to use. Required. |
+| `runner_args [...]` | Extra arguments passed to the runner. Optional. |
+| `lang <name>` | The language of witness bodies. Required. |
+| `fixture NAME { ... }` | A named block of language-specific code injected before all witnesses. |
+| `witness "name" hard { ... }` | A witness that must pass. |
+| `witness "name" soft weight W { ... }` | A witness that contributes `W` to the objective. |
+| `objective { ... }` | Declares measured and named objectives. |
+
+### 4.3 Witness Bodies
+
+A witness body is a single language expression enclosed in braces. It may span multiple lines. It must be valid code in the language declared by `lang`.
+
+For Rust, it is a `bool` expression.
+
+For Python, it is an expression that evaluates to a truthy or falsy value.
+
+For TypeScript, it is an expression that evaluates to a `boolean`.
+
+The runner is responsible for interpreting the body in its language.
+
+### 4.4 Fixtures
+
+Fixtures let witnesses share setup code:
+
+```
+fixture PARSE_CASES {
+    const CASES: &[(&str, u64)] = &[
+        ("1s", 1),
+        ("30s", 30),
+        ("1m", 60),
+    ];
+}
+
+witness "all cases parse" hard {
+    CASES.iter().all(|(s, n)| parse_duration(s) == Ok(*n))
+}
+```
+
+Fixtures are concatenated in the order declared and injected at the top of the generated test module.
+
+### 4.5 Comments
+
+Lines whose first non-whitespace character is `#` are comments. Inline `#` inside a witness body is a language comment and is preserved.
+
+### 4.6 Full Formal Grammar
+
+```
+spec        ::= { line }
+
+line        ::= directive | witness | fixture | objective | comment | blank
+
+directive   ::= spec_decl | target_decl | runner_decl | runner_args_decl | lang_decl
+spec_decl   ::= "spec" ws string
+target_decl ::= "target" ws string
+runner_decl ::= "runner" ws ident
+runner_args_decl ::= "runner_args" ws "[" string_list "]"
+lang_decl   ::= "lang" ws ident
+
+witness     ::= "witness" ws string ws mode ws "{" nl body nl "}"
+mode        ::= "hard" | "soft" ws "weight" ws float
+
+fixture     ::= "fixture" ws ident ws "{" nl body nl "}"
+
+objective   ::= "objective" ws "{" nl { objective_line } "}"
+objective_line ::= "minimises" ws string | "maximises" ws string
+
+body        ::= { any_line }
+
+string      ::= '"' { any - '"' } '"'
+ident       ::= [a-zA-Z_][a-zA-Z0-9_-]*
+float       ::= [0-9]+ ("." [0-9]+)?
+ws          ::= " " { " " }
+```
+
+---
+
+## 5. Bundle Format
+
+### 5.1 Repomix Format
+
+Assay reads the Repomix XML format natively. A Repomix bundle is:
+
+```xml
+<file_summary>
+  ...metadata...
+</file_summary>
+
+<directory_structure>
+  src/
+    main.rs
+    lib.rs
+  ...
+</directory_structure>
+
+<files>
+  <file path="src/main.rs">
+    <![CDATA[
+    fn main() { ... }
+    ]]>
+  </file>
+  ...
+</files>
+```
+
+Assay parses this into an internal `Bundle` struct:
+
+```rust
+pub struct Bundle {
+    pub files: BTreeMap<String, String>,  // path → content
+    pub metadata: BTreeMap<String, String>,
+    pub fingerprint: String,              // SHA-256 of canonical serialization
+}
+```
+
+### 5.2 Bundle Fingerprint
+
+The fingerprint is computed as:
+
+```
+for path in sorted(files.keys()):
+    hash.update(path)
+    hash.update("\0")
+    hash.update(files[path])
+    hash.update("\0")
+fingerprint = hex(hash.finalize())
+```
+
+This makes the fingerprint independent of file ordering, metadata, and whitespace around files.
+
+### 5.3 Other Formats
+
+Assay's bundle parser is extensible. The following formats are supported out of the box:
+
+| Format | Detector |
+|---|---|
+| Repomix XML | Root element `<file_summary>` |
+| Repomix Markdown | First line contains `# Repository` |
+| Repomix JSON | Root object with `files` array |
+| GNU tarball | Magic bytes `\x1f\x8b` |
+| Directory | Argument is an existing directory |
+
+Adapters are registered in `src/bundle/`. Each adapter is a small function that takes raw bytes and returns a `Bundle`.
+
+---
+
+## 6. Verification Engine
+
+### 6.1 Sequence
+
+```
+1. Parse bundle.
+2. Parse spec.
+3. For each target file in the spec's glob:
+     a. Extract the file from the bundle.
+     b. Write it to a temporary directory, preserving path structure.
+4. Generate a witness module in the target language.
+5. Inject the witness module into the temporary copy of the target file.
+6. Write any extra files needed by the runner (e.g., Cargo.toml, package.json).
+7. Invoke the runner with the configured arguments.
+8. Capture stdout, stderr, and exit code.
+9. Parse the runner's output for per-witness status.
+10. Build the report.
+11. Delete the temporary directory.
+12. Emit the report.
+```
+
+### 6.2 Runners
+
+Assay ships with the following runners:
+
+| Runner | Language | Invocation |
+|---|---|---|
+| `rust` | Rust | `cargo test` |
+| `python` | Python | `pytest -q` or `python -m unittest` |
+| `node` | TS/JS | `npx vitest run` or `node --test` |
+| `go` | Go | `go test ./...` |
+| `shell` | Any | The command named in `runner_args` |
+
+Each runner implements the trait:
+
+```rust
+pub trait Runner {
+    fn name(&self) -> &'static str;
+    fn prepare(
+        &self,
+        dir: &Path,
+        spec: &Spec,
+        bundle: &Bundle,
+        witnesses: &[Witness],
+    ) -> Result<()>;
+    fn invoke(&self, dir: &Path, args: &[String]) -> Result<RunOutput>;
+    fn parse(&self, output: &RunOutput, witnesses: &[Witness]) -> Vec<WitnessResult>;
+}
+```
+
+### 6.3 Runner Output Contract
+
+A runner's output is parsed into `RunOutput`:
+
+```rust
+pub struct RunOutput {
+    pub exit_code: i32,
+    pub stdout: String,
+    pub stderr: String,
+    pub duration_ms: u64,
+    pub per_witness: Vec<WitnessResult>,  // if the runner can extract them
+}
+
+pub struct WitnessResult {
+    pub name: String,
+    pub status: Status,          // Pass | Fail | Skip | Error
+    pub detail: Option<String>,  // stack trace, assertion message, etc.
+    pub duration_ms: Option<u64>,
+}
+```
+
+If the runner cannot extract per-witness results, the whole run is treated as one witness. Runners that can extract per-witness results do so and emit them in a standard format:
+
+```
+ASSAY_WITNESS_RESULT name=<name> status=<status> duration_ms=<ms> detail=<single-line detail>
+```
+
+Assay's Rust, Python, and Node runners emit this automatically by wrapping the test invocation.
+
+### 6.4 Timeouts
+
+Every runner is invoked with a timeout. Default: 300 seconds. Configurable in `.assay.toml`. On timeout, all witnesses in the run are marked `Error` with detail `"runner timeout"`.
+
+### 6.5 Caching
+
+Assay caches verification results by `(bundle_fingerprint, spec_fingerprint, runner_args)`. Cache lives in `.assay-cache/` at the working directory. Cache entries are invalidated when any component of the key changes.
+
+---
+
+## 7. Report Format
+
+### 7.1 Schema
+
+```json
+{
+  "assay_version": "2.0.0",
+  "spec": {
+    "name": "duration",
+    "path": "duration.assay",
+    "fingerprint": "sha256:...",
+    "targets": ["src/duration.rs"],
+    "runner": "rust",
+    "lang": "rust"
+  },
+  "bundle": {
+    "fingerprint": "sha256:...",
+    "file_count": 42,
+    "byte_count": 18342
+  },
+  "run": {
+    "timestamp_ms": 1715000000000,
+    "duration_ms": 1247,
+    "exit_code": 1,
+    "cached": false
+  },
+  "witnesses": [
+    {
+      "name": "empty returns none",
+      "kind": "hard",
+      "status": "pass",
+      "duration_ms": 3
+    },
+    {
+      "name": "compound minutes-seconds",
+      "kind": "hard",
+      "status": "fail",
+      "duration_ms": 2,
+      "detail": "assertion failed: parse_duration(\"2m30s\") == Ok(150)\n  left: Ok(150)\n  right: Ok(150)"
+    }
+  ],
+  "summary": {
+    "total": 4,
+    "passed": 3,
+    "failed": 1,
+    "errored": 0,
+    "skipped": 0,
+    "hard_total": 3,
+    "hard_passed": 2,
+    "soft_total": 1,
+    "soft_passed": 1,
+    "satisfied": false,
+    "objective": 0.75,
+    "objective_breakdown": {
+      "no panics on garbage": 0.5
+    }
+  },
+  "delta": {
+    "from_fingerprint": "sha256:...",
+    "witnesses_changed": [
+      {"name": "compound minutes-seconds", "from": "pass", "to": "fail"}
+    ],
+    "objective_delta": -0.25
+  },
+  "previous_directive": {
+    "path": "directives/latest.json",
+    "id": "d-2026-04-03-001",
+    "target": "src/duration.rs",
+    "intent": "Add support for compound minute-second inputs"
+  },
+  "report_fingerprint": "sha256:..."
+}
+```
+
+### 7.2 Fields
+
+| Field | Meaning |
+|---|---|
+| `spec.fingerprint` | SHA-256 of the spec file's canonical serialization |
+| `bundle.fingerprint` | SHA-256 of the bundle (§5.2) |
+| `witnesses[].status` | One of `pass`, `fail`, `skip`, `error` |
+| `summary.satisfied` | `true` iff `hard_passed == hard_total` and `errored == 0` |
+| `summary.objective` | Soft witness score, `[0, 1]` |
+| `delta` | Present only if a previous report exists; computed by diffing |
+| `previous_directive` | Echoed from disk so the oracle sees continuity |
+| `report_fingerprint` | SHA-256 over all fields except itself |
+
+### 7.3 Report Fingerprint
+
+Computed as:
+
+```
+body = canonical_json(report without report_fingerprint)
+hash = sha256(body)
+report_fingerprint = "sha256:" + hex(hash)
+```
+
+Canonical JSON: keys sorted, no insignificant whitespace, floats formatted to six decimal places.
+
+### 7.4 Determinism Guarantee
+
+Two invocations of Assay with the same spec and bundle produce byte-identical reports, except for:
+
+- `run.timestamp_ms` and `run.duration_ms` (nondeterministic by nature).
+- `delta` (depends on previous report).
+
+To obtain a fully deterministic report, pass `--frozen` to strip these fields. Frozen reports are used for CI caching.
+
+---
+
+## 8. The Oracle Protocol
+
+### 8.1 Role
+
+The oracle is a frontier language model. Its job is to read a report and emit a directive. It does not write code. It does not run tests. It does not see the bundle. It sees only:
+
+- The spec (in full, once per session).
+- The current report.
+- The previous directive, if any.
+- A short history of the last `N` reports and directives, if available.
+
+### 8.2 Inputs
+
+The oracle is invoked with a single JSON object:
+
+```json
+{
+  "spec": "<full spec text>",
+  "report": { ...current report... },
+  "history": [
+    {"directive": {...}, "report": {...}},
+    ...
+  ],
+  "constraints": {
+    "max_targets": 3,
+    "max_edit_distance": "moderate",
+    "preserve_passing_witnesses": true
+  }
+}
+```
+
+`history` is capped at `oracle.history_limit` entries (default 8).
+
+### 8.3 Output
+
+The oracle emits a single JSON object:
+
+```json
+{
+  "id": "d-2026-04-03-002",
+  "target": ["src/duration.rs"],
+  "intent": "Handle 'm' and 's' suffixes in either order.",
+  "constraints": [
+    "empty returns none",
+    "all valid inputs parse"
+  ],
+  "rationale": "Two hard witnesses fail because the parser assumes a canonical order. Support both orders.",
+  "priority": "high",
+  "expected_outcome": {
+    "witnesses_that_should_flip": ["compound minutes-seconds"],
+    "objective_target": 1.0
+  }
+}
+```
+
+### 8.4 Schema
+
+| Field | Type | Meaning |
+|---|---|---|
+| `id` | string | Unique identifier. Assay generates one if omitted. |
+| `target` | array of strings | Paths the implementer may modify. |
+| `intent` | string | One sentence describing the change. |
+| `constraints` | array of strings | Witness names that must not regress. |
+| `rationale` | string | Why this directive is correct. |
+| `priority` | string | `high`, `medium`, `low`. |
+| `expected_outcome` | object | What should change after applying. |
+
+### 8.5 Invariants
+
+- A directive must target at least one file that appears in the spec's `target` glob.
+- A directive must name at least one witness that is currently failing, unless `priority = "high"` and the rationale mentions "refine".
+- A directive must not name a witness that is currently passing, unless the rationale mentions "lock in".
+
+These invariants are enforced by Assay when it writes the directive to disk. Invalid directives are rejected with exit code 6.
+
+### 8.6 Persistence
+
+Directives are written to `directives/<id>.json` and `directives/latest.json`. The oracle reads `latest.json` at session start to see the previous directive.
+
+---
+
+## 9. The Refinement Loop
+
+### 9.1 Goal
+
+The loop's goal is twofold:
+
+1. **Satisfaction.** All hard witnesses pass.
+2. **Refinement.** The objective value increases monotonically until satisfaction, then plateaus at its maximum.
+
+### 9.2 Loop Steps
+
+```
+1. Assay verifies the current bundle.
+2. Assay emits a report.
+3. Oracle reads the report.
+4. Oracle emits a directive.
+5. Implementer reads the directive.
+6. Implementer modifies the code.
+7. Implementer commits.
+8. Repository is updated.
+9. Bundle is regenerated (via Repomix).
+10. Go to 1.
+```
+
+### 9.3 Refinement Signals
+
+Assay provides three signals to the oracle:
+
+- **Satisfaction.** Boolean. `true` iff all hard witnesses pass.
+- **Objective.** Scalar in `[0, 1]`. Weighted average of soft witnesses.
+- **Delta.** Change in satisfaction and objective from the previous report.
+
+### 9.4 Measured Objectives
+
+A spec may declare measured objectives:
+
+```
+objective {
+    minimises "build_time_ms" target 5000
+    maximises "test_coverage_percent" target 95
+}
+```
+
+The runner emits measured values:
+
+```
+ASSAY_MEASURED name=build_time_ms value=4200
+ASSAY_MEASURED name=test_coverage_percent value=87.5
+```
+
+Assay normalizes each measured value against its target:
+
+```
+normalized = clamp(value / target, 0, 1)   for minimises
+normalized = clamp(value / target, 0, 1)   for maximises
+```
+
+The composite objective is:
+
+```
+objective = Σ (wᵢ × softᵢ) + Σ (wⱼ × measuredⱼ) 
+            ─────────────────────────────────────
+                    Σ wᵢ + Σ wⱼ
+```
+
+### 9.5 Convergence Criteria
+
+The loop terminates when any of:
+
+- `satisfied = true` and `objective` has not increased for `K` consecutive iterations (default `K = 3`).
+- The user stops it.
+- The oracle emits a directive with `intent = "done"`.
+
+### 9.6 `assay loop`
+
+Assay provides a convenience command that orchestrates the loop:
+
+```
+assay loop <spec> --bundle <path> --repo <path> --oracle <provider> [--max-iterations N]
+```
+
+It:
+
+1. Verifies the bundle.
+2. Calls the oracle.
+3. Writes the directive.
+4. Invokes a user-configured command that applies the directive (typically a script that prompts AI Studio or the implementer).
+5. Re-pulls and re-bundles.
+6. Repeats.
+
+The user can customize step 4 via `.assay.toml`:
+
+```toml
+[loop]
+apply_command = "scripts/apply-directive.sh"
+repull_command = "scripts/repull.sh"
+rebundle_command = "npx repomix --output bundle.xml"
+```
+
+Assay does not implement apply, repull, or rebundle itself. It shells out to the user's commands.
+
+---
+
+## 10. CLI Reference
+
+### 10.1 Synopsis
+
+```
+assay <command> [options]
+```
+
+### 10.2 Commands
+
+| Command | Purpose |
+|---|---|
+| `assay verify <spec> --bundle <path>` | Verify a bundle against a spec. Emit a report. |
+| `assay report <spec> --bundle <path>` | Same as `verify`, but always exit 0. |
+| `assay diff <report-a> <report-b>` | Compare two reports. |
+| `assay oracle <spec> --report <path>` | Invoke the oracle. Emit a directive. |
+| `assay loop <spec>` | Run the loop. |
+| `assay init [<dir>]` | Scaffold a new project. |
+| `assay fmt <spec>` | Canonicalize a spec. |
+| `assay schema` | Print JSON schemas for reports and directives. |
+| `assay version` | Print version and exit. |
+
+### 10.3 `verify` Options
+
+| Flag | Meaning |
+|---|---|
+| `--bundle <path>` | Path to a bundle file. Required. |
+| `--out <path>` | Write report to this path. Default: stdout. |
+| `--frozen` | Strip nondeterministic fields. |
+| `--no-cache` | Skip cache lookup and write. |
+| `--runner <name>` | Override the runner declared in the spec. |
+| `--target <glob>` | Override the target glob. |
+| `--jobs <n>` | Parallelism for multi-target specs. Default: 1. |
+| `--quiet` | Suppress logs. |
+
+### 10.4 `oracle` Options
+
+| Flag | Meaning |
+|---|---|
+| `--report <path>` | Path to a report. Required. |
+| `--provider <name>` | `anthropic`, `openai`, `gemini`. Default: auto. |
+| `--model <name>` | Model identifier. Default: provider default. |
+| `--history <path>` | Directory of prior reports and directives. Default: `directives/`. |
+| `--out <path>` | Write directive to this path. Default: `directives/latest.json`. |
+| `--max-history <n>` | Max prior entries to include. Default: 8. |
+
+### 10.5 Exit Codes
+
+| Code | Meaning |
+|---|---|
+| 0 | Success (all hard witnesses pass). |
+| 1 | One or more hard witnesses failed. |
+| 2 | Spec parse error. |
+| 3 | Bundle parse error. |
+| 4 | I/O error. |
+| 5 | Runner failed to invoke. |
+| 6 | Oracle returned an invalid directive. |
+| 7 | Timeout. |
+| 64 | Invalid CLI usage. |
+
+---
+
+## 11. Configuration
+
+Assay reads `.assay.toml` from the working directory tree, walking upward until found. Environment variables override file values.
+
+```toml
+[assay]
+working_dir = "."
+cache_dir = ".assay-cache"
+
+[verifier]
+runner = "auto"
+timeout_seconds = 300
+max_parallel = 1
+emit_measured = true
+
+[bundle]
+format = "auto"
+max_bytes = 50000000
+include = ["src/**", "tests/**", "Cargo.toml", "package.json"]
+exclude = ["node_modules/**", "target/**", "dist/**"]
+
+[oracle]
+provider = "auto"
+model = "auto"
+history_limit = 8
+max_tokens = 8192
+temperature = 0.2
+timeout_seconds = 180
+
+[loop]
+apply_command = ""
+repull_command = ""
+rebundle_command = ""
+max_iterations = 50
+convergence_k = 3
+
+[ui]
+color = true
+unicode = true
+verbosity = "info"
+```
+
+### 11.1 Environment Variables
+
+| Variable | Effect |
+|---|---|
+| `ANTHROPIC_API_KEY` | Enables the Anthropic oracle. |
+| `OPENAI_API_KEY` | Enables the OpenAI oracle. |
+| `GEMINI_API_KEY` | Enables the Gemini oracle. |
+| `ASSAY_CACHE_DIR` | Overrides `assay.cache_dir`. |
+| `ASSAY_VERBOSE` | Sets `ui.verbosity = "debug"`. |
+| `ASSAY_NO_COLOR` | Sets `ui.color = false`. |
+
+---
+
+## 12. Security Model
+
+### 12.1 Trust Boundaries
+
+Assay trusts:
+
+- The user's spec.
+- The user's runner configuration.
+- The host operating system.
+
+Assay does not trust:
+
+- The bundle, as authored by arbitrary parties.
+- The oracle, as an external language model.
+- The implementer, as an autonomous agent.
+
+### 12.2 Filesystem
+
+Assay writes only to:
+
+- The path specified by `--out` (report or directive).
+- The cache directory.
+- Temporary directories created by `std::env::temp_dir()`, which are deleted on exit.
+
+Assay reads only from:
+
+- The spec path.
+- The bundle path.
+- The cache directory.
+
+Assay never follows symlinks outside the working directory. Bundle paths containing `..` are rejected.
+
+### 12.3 Network
+
+Assay makes network calls only in `assay oracle` mode, only to the configured provider's API endpoint, and only with the API key present in the environment. API keys are never written to disk, never logged, and never included in any output.
+
+### 12.4 Oracle Output
+
+The oracle's output is treated as untrusted. Assay validates it against the directive schema before writing it. Invalid directives cause exit code 6 and are not written.
+
+### 12.5 Runner Execution
+
+Runners are invoked with the user's permissions in a temporary directory. Assay does not sandbox runners; the user is responsible for the runner's safety. Users running untrusted bundles should invoke Assay inside a container.
+
+---
+
+## 13. Google AI Studio Integration
+
+### 13.1 Overview
+
+The intended deployment is:
+
+1. A user maintains a repository on GitHub.
+2. The repository is opened in AI Studio's Build mode.
+3. The AI Studio implementer writes code.
+4. The user pulls the repository locally.
+5. The user runs Assay to produce a report.
+6. The user runs the oracle to produce a directive.
+7. The directive is fed back into AI Studio as a prompt.
+8. Repeat.
+
+Assay automates steps 5–7 with `assay loop`.
+
+### 13.2 Bootstrap Prompt for AI Studio
+
+Paste this into AI Studio Build to generate the initial Assay repository:
+
+> Build a Rust CLI application named `assay`. It reads a specification file and a Repomix bundle, executes the specification's witnesses against the bundle using external runners (Rust, Python, Node.js, and a generic shell runner), and emits a JSON report describing which witnesses pass and which fail. It can also invoke a frontier language model to produce a JSON directive that describes the next change. The application must compile with `cargo build --release` on Rust 1.75+.
+>
+> Required modules: `bundle`, `spec`, `witness`, `runner`, `report`, `oracle`, `loop`. Required dependencies: `anyhow`, `clap`, `reqwest`, `serde`, `serde_json`, `toml`, `sha2`, `tempfile`. No others.
+>
+> Provide `assay` subcommands: `verify`, `report`, `diff`, `oracle`, `loop`, `init`, `fmt`, `schema`, `version`. Provide unit tests for the spec parser, the bundle parser, and the report fingerprinting. Provide one integration test that constructs a temporary crate and verifies it end to end. Provide a sample `examples/duration/` with a spec and a stub implementation.
+
+### 13.3 Repository Layout
+
+```
+assay/
+├── Cargo.toml
+├── Cargo.lock
+├── README.md
+├── LICENSE-MIT
+├── LICENSE-APACHE
+├── .github/workflows/ci.yml
+├── src/
+│   ├── main.rs
+│   ├── bundle/
+│   │   ├── mod.rs
+│   │   ├── repomix.rs
+│   │   ├── markdown.rs
+│   │   └── json.rs
+│   ├── spec/
+│   │   ├── mod.rs
+│   │   ├── parser.rs
+│   │   └── ast.rs
+│   ├── witness/
+│   │   ├── mod.rs
+│   │   └── result.rs
+│   ├── runner/
+│   │   ├── mod.rs
+│   │   ├── rust.rs
+│   │   ├── python.rs
+│   │   ├── node.rs
+│   │   └── shell.rs
+│   ├── report/
+│   │   ├── mod.rs
+│   │   ├── builder.rs
+│   │   └── fingerprint.rs
+│   ├── oracle/
+│   │   ├── mod.rs
+│   │   ├── client.rs
+│   │   ├── directive.rs
+│   │   └── providers/
+│   │       ├── anthropic.rs
+│   │       ├── openai.rs
+│   │       └── gemini.rs
+│   └── loop/
+│       ├── mod.rs
+│       └── orchestrator.rs
+├── examples/
+│   └── duration/
+│       ├── duration.assay
+│       └── src/
+│           └── lib.rs
+├── tests/
+│   ├── spec_parser.rs
+│   ├── bundle_parser.rs
+│   ├── report_fingerprint.rs
+│   └── end_to_end.rs
+└── docs/
+    ├── spec.md
+    ├── grammar.ebnf
+    ├── report.schema.json
+    └── directive.schema.json
+```
+
+---
+
+## 14. Complete Example
+
+### 14.1 The Spec
+
+`examples/duration/duration.assay`:
+
+```
+spec "duration"
+
+target "src/lib.rs"
+runner rust
+lang rust
+
+fixture VALID {
+    const VALID: &[(&str, u64)] = &[
+        ("1s", 1),
+        ("30s", 30),
+        ("1m", 60),
+        ("2m30s", 150),
+        ("1h", 3600),
+        ("1h30m", 5400),
+    ];
+}
+
+fixture INVALID {
+    const INVALID: &[&str] = &[
+        "",
+        "s",
+        "1",
+        "1x",
+        "-1s",
+        "1h30",
+    ];
+}
+
+witness "empty input" hard {
+    parse_duration("").is_none()
+}
+
+witness "single second" hard {
+    parse_duration("1s") == Ok(1)
+}
+
+witness "compound minutes-seconds" hard {
+    parse_duration("2m30s") == Ok(150)
+}
+
+witness "compound hours-minutes" hard {
+    parse_duration("1h30m") == Ok(5400)
+}
+
+witness "all valid inputs parse" hard {
+    VALID.iter().all(|(s, n)| parse_duration(s) == Ok(*n))
+}
+
+witness "all invalid inputs reject" hard {
+    INVALID.iter().all(|s| parse_duration(s).is_err())
+}
+
+witness "no panics on arbitrary input" soft weight 1.0 {
+    [
+        "\u{0000}", "１２３", "1s1s", "9999999999999999999s",
+    ].iter().all(|s| parse_duration(s).is_err())
+}
+
+objective {
+    minimises "lines_of_code" target 200
+}
+```
+
+### 14.2 The Implementation Stub
+
+`examples/duration/src/lib.rs`:
+
+```rust
+pub fn parse_duration(_s: &str) -> Result<u64, String> {
+    unimplemented!()
+}
+```
+
+### 14.3 Verification
+
+```bash
+$ assay verify examples/duration/duration.assay --bundle examples/duration/bundle.xml
+{
+  "assay_version": "2.0.0",
+  "spec": { "name": "duration", ... },
+  "summary": {
+    "total": 7,
+    "passed": 0,
+    "failed": 6,
+    "errored": 0,
+    "hard_total": 6,
+    "hard_passed": 0,
+    "soft_total": 1,
+    "soft_passed": 0,
+    "satisfied": false,
+    "objective": 0.0
+  },
+  ...
+}
+```
+
+Exit code 1.
+
+### 14.4 Oracle Invocation
+
+```bash
+$ assay oracle examples/duration/duration.assay --report report.json
+{
+  "id": "d-2026-04-03-001",
+  "target": ["src/lib.rs"],
+  "intent": "Implement parse_duration to parse sequences of numeric-amount+unit-suffix pairs (s for seconds, m for minutes, h for hours), summing their values.",
+  "constraints": [],
+  "rationale": "All six hard witnesses concern parse_duration. The stub is unimplemented. The simplest implementation parses the string left to right, extracting (amount, unit) pairs and summing.",
+  "priority": "high",
+  "expected_outcome": {
+    "witnesses_that_should_flip": [
+      "empty input",
+      "single second",
+      "compound minutes-seconds",
+      "compound hours-minutes",
+      "all valid inputs parse",
+      "all invalid inputs reject"
+    ],
+    "objective_target": 1.0
+  }
+}
+```
+
+### 14.5 Applying the Directive
+
+The user pastes the `intent` field into AI Studio. The implementer writes:
+
+```rust
+pub fn parse_duration(s: &str) -> Result<u64, String> {
+    if s.is_empty() { return Err("empty".into()); }
+    let mut total = 0u64;
+    let mut num = String::new();
+    for c in s.chars() {
+        if c.is_ascii_digit() {
+            num.push(c);
+        } else {
+            let n: u64 = num.parse().map_err(|_| "no number")?;
+            let mult = match c {
+                's' => 1,
+                'm' => 60,
+                'h' => 3600,
+                _ => return Err("bad unit".into()),
+            };
+            total += n * mult;
+            num.clear();
+        }
+    }
+    if !num.is_empty() { return Err("trailing number".into()); }
+    Ok(total)
+}
+```
+
+### 14.6 Re-Verification
+
+```bash
+$ assay verify examples/duration/duration.assay --bundle examples/duration/bundle.xml
+{
+  ...
+  "summary": {
+    "satisfied": true,
+    "objective": 1.0,
+    ...
+  }
+}
+```
+
+Exit code 0. The loop completes.
+
+---
+
+## 15. Non-Goals
+
+Assay is not:
+
+- A build system. Use `cargo`, `npm`, `make`, or whatever the target uses.
+- A package manager. Use the target's native tooling.
+- A version control system. Use `git`.
+- A code editor. Use AI Studio or an IDE.
+- A linter. Use the target's linter.
+- A formatter. Use the target's formatter.
+- A code reviewer. Reviews are for humans.
+- A specification language. Specs are witnesses; they are written in the target's language.
+- A test framework. Runners are test frameworks. Assay invokes them.
+- A scheduler. Loops are the user's to orchestrate.
+
+Assay does one thing: it takes a spec and a bundle, executes the spec's witnesses against the bundle, and emits a structured report. Everything else is downstream.
+
+---
+
+## 16. Roadmap
+
+**v2.0** — This document.
+
+**v2.1** — Additional runners: Go, Java, Ruby, PHP, C#. Bundle adapters for `git archive`, `tar`, `zip`, and plain directories. Cache compression.
+
+**v2.2** — Parallel target verification. Per-witness caching (finer grain than per-run caching). Report diffing with structural awareness (identifies which witnesses changed for which reasons).
+
+**v2.3** — Incremental verification: skip witnesses whose dependencies did not change. Requires a per-witness dependency declaration.
+
+**v2.4** — Oracle session memory: Assay keeps a rolling summary of the last `N` directives and reports, and provides it to the oracle as a compressed context. This reduces token usage and improves directive coherence.
+
+**v3.0** — Verifiable refinement: witnesses may declare formal predicates over the objective function (e.g., "this witness can only improve"). Assay tracks which directives moved the objective and which did not, and shapes future oracle prompts accordingly.
+
+Everything after v3.0 is speculative and will be driven by real use.
+
+---
+
+## 17. Glossary
+
+**Assay.** The program described by this document.
+
+**Bundle.** A single file containing an entire repository. Typically produced by Repomix.
+
+**Delta.** The change between two reports. Present in a report only if a previous report is available.
+
+**Directive.** The oracle's output. A JSON document describing the next change.
+
+**Fingerprint.** A SHA-256 hash over a canonical serialization. Used to identify specs, bundles, and reports.
+
+**Fixture.** A named block of language-specific code injected into a generated witness module.
+
+**Hard witness.** A witness that must pass for the spec to be considered satisfied.
+
+**Implementer.** The agent that writes code. Typically AI Studio.
+
+**Loop.** One full cycle: directive → implementer → bundle → assay → report → oracle.
+
+**Objective.** A scalar in `[0, 1]` measuring soft witness satisfaction and measured objectives.
+
+**Oracle.** The frontier language model that reads reports and emits directives.
+
+**Report.** Assay's output. A JSON document describing witness statuses and the objective.
+
+**Runner.** An external program that Assay invokes to execute witnesses in a specific language.
+
+**Soft witness.** A witness that contributes to the objective but does not gate satisfaction.
+
+**Spec.** A text file declaring targets, runners, witnesses, fixtures, and objectives.
+
+**Satisfaction.** `true` iff every hard witness passes.
+
+**Witness.** A claim about the bundle. Compiled into a test in the target language.
+
+---
+
+## 18. Final Note
+
+The one-sentence description of Assay is:
+
+> **Given a spec and a bundle, execute the spec's witnesses against the bundle, and report the result deterministically.**
+
+The oracle's one-sentence description is:
+
+> **Given a report, produce a directive that moves the code toward satisfaction and refinement.**
+
+The loop's one-sentence description is:
+
+> **Turn the code into a verifiable math problem, and solve it by iterating with an oracle and an implementer.**
+
+Everything else in this document is detail. If the implementation of Assay grows beyond what is needed to support these three sentences, it is wrong.
+
+Assay is deliberately small. It is small enough that one person can read all of it, understand it, and trust it. That is the point. Verification only works when the verifier is simple enough to trust.
+
+— *End of Specification*
+</file>
+
+<file path="examples/duration/src/lib.rs">
+pub fn parse_duration(_s: &str) -> Result<u64, String> {
+    unimplemented!()
+}
+</file>
+
+<file path="examples/duration/duration.assay">
+spec "duration"
+
+target "src/lib.rs"
+runner rust
+lang rust
+
+fixture VALID {
+    const VALID: &[(&str, u64)] = &[
+        ("1s", 1),
+        ("30s", 30),
+        ("1m", 60),
+        ("2m30s", 150),
+        ("1h", 3600),
+        ("1h30m", 5400),
+    ];
+}
+
+fixture INVALID {
+    const INVALID: &[&str] = &[
+        "",
+        "s",
+        "1",
+        "1x",
+        "-1s",
+        "1h30",
+    ];
+}
+
+witness "empty input" hard {
+    parse_duration("").is_none()
+}
+
+witness "single second" hard {
+    parse_duration("1s") == Ok(1)
+}
+
+witness "compound minutes-seconds" hard {
+    parse_duration("2m30s") == Ok(150)
+}
+
+witness "compound hours-minutes" hard {
+    parse_duration("1h30m") == Ok(5400)
+}
+
+witness "all valid inputs parse" hard {
+    VALID.iter().all(|(s, n)| parse_duration(s) == Ok(*n))
+}
+
+witness "all invalid inputs reject" hard {
+    INVALID.iter().all(|s| parse_duration(s).is_err())
+}
+
+witness "no panics on arbitrary input" soft weight 1.0 {
+    [
+        "\u{0000}", "１２３", "1s1s", "9999999999999999999s",
+    ].iter().all(|s| parse_duration(s).is_err())
+}
+
+objective {
+    minimises "lines_of_code" target 200
+}
+</file>
+
+<file path="src/bundle/json.rs">
+
+</file>
+
+<file path="src/bundle/markdown.rs">
+
+</file>
+
+<file path="src/bundle/mod.rs">
+pub mod repomix;
+pub mod markdown;
+pub mod json;
+
+use std::collections::BTreeMap;
+
+pub struct Bundle {
+    pub files: BTreeMap<String, String>,
+    pub metadata: BTreeMap<String, String>,
+    pub fingerprint: String,
+}
+
+impl Bundle {
+    pub fn empty() -> Self {
+        Self {
+            files: BTreeMap::new(),
+            metadata: BTreeMap::new(),
+            fingerprint: String::new(),
+        }
+    }
+}
+
+pub fn parse_file(path: &std::path::Path) -> anyhow::Result<Bundle> {
+    let content = std::fs::read_to_string(path)?;
+    crate::bundle::repomix::parse(&content)
+}
+</file>
+
+<file path="src/bundle/repomix.rs">
+use crate::bundle::Bundle;
+use anyhow::{anyhow, Result};
+use sha2::{Digest, Sha256};
+use std::collections::BTreeMap;
+
+pub fn parse(content: &str) -> Result<Bundle> {
+    let metadata = extract_summary(content);
+    let files = extract_files(content)?;
+    let fingerprint = compute_fingerprint(&files);
+    Ok(Bundle {
+        files,
+        metadata,
+        fingerprint,
+    })
+}
+
+fn extract_summary(content: &str) -> BTreeMap<String, String> {
+    let mut map = BTreeMap::new();
+    if let Some(start) = content.find("<file_summary>") {
+        let after = &content[start + "<file_summary>".len()..];
+        if let Some(end) = after.find("</file_summary>") {
+            let raw = after[..end].trim().to_string();
+            map.insert("raw".to_string(), raw);
+        }
+    }
+    map
+}
+
+fn extract_files(content: &str) -> Result<BTreeMap<String, String>> {
+    let mut files = BTreeMap::new();
+
+    let files_start = content
+        .find("<files>")
+        .ok_or_else(|| anyhow!("missing <files> block"))?
+        + "<files>".len();
+    let files_end = content[files_start..]
+        .find("</files>")
+        .ok_or_else(|| anyhow!("missing </files> terminator"))?
+        + files_start;
+    let files_block = &content[files_start..files_end];
+
+    let mut cursor = 0;
+    while let Some(pos) = files_block[cursor..].find("<file ") {
+        let tag_start = cursor + pos;
+        let after_tag = tag_start + "<file ".len();
+
+        let tag_end = files_block[after_tag..]
+            .find('>')
+            .ok_or_else(|| anyhow!("unterminated <file> opening tag"))?
+            + after_tag;
+
+        let attr_str = &files_block[after_tag..tag_end];
+        let path = extract_path_attr(attr_str)?;
+
+        let body_start = tag_end + 1;
+        let body_end = files_block[body_start..]
+            .find("</file>")
+            .ok_or_else(|| anyhow!("missing </file> for path {}", path))?
+            + body_start;
+
+        let body = &files_block[body_start..body_end];
+        let content_str = extract_cdata(body);
+
+        files.insert(path, content_str);
+        cursor = body_end + "</file>".len();
+    }
+
+    Ok(files)
+}
+
+fn extract_path_attr(attr: &str) -> Result<String> {
+    let attr = attr.trim();
+    let eq = attr
+        .find('=')
+        .ok_or_else(|| anyhow!("malformed file attribute: {}", attr))?;
+    let value = attr[eq + 1..].trim();
+    let value = value
+        .strip_prefix('"')
+        .and_then(|s| s.strip_suffix('"'))
+        .ok_or_else(|| anyhow!("expected quoted path in: {}", attr))?;
+    Ok(value.to_string())
+}
+
+fn extract_cdata(body: &str) -> String {
+    const OPEN: &str = "<![CDATA[";
+    const CLOSE: &str = "]]>";
+    if let Some(start) = body.find(OPEN) {
+        let after = start + OPEN.len();
+        if let Some(end) = body[after..].find(CLOSE) {
+            let mut inner = &body[after..after + end];
+            if inner.starts_with('\n') {
+                inner = &inner[1..];
+            }
+            if inner.ends_with('\n') {
+                inner = &inner[..inner.len() - 1];
+            }
+            return inner.to_string();
+        }
+    }
+    body.trim().to_string()
+}
+
+fn compute_fingerprint(files: &BTreeMap<String, String>) -> String {
+    let mut hasher = Sha256::new();
+    for (path, content) in files {
+        hasher.update(path.as_bytes());
+        hasher.update(&[0u8]);
+        hasher.update(content.as_bytes());
+        hasher.update(&[0u8]);
+    }
+    let digest = hasher.finalize();
+    format!("sha256:{}", hex_encode(&digest))
+}
+
+fn hex_encode(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for b in bytes {
+        out.push(HEX[(b >> 4) as usize] as char);
+        out.push(HEX[(b & 0x0f) as usize] as char);
+    }
+    out
+}
+</file>
+
+<file path="src/oracle/providers/anthropic.rs">
+
+</file>
+
+<file path="src/oracle/providers/gemini.rs">
+
+</file>
+
+<file path="src/oracle/providers/mod.rs">
+pub mod anthropic;
+pub mod gemini;
+pub mod openai;
+</file>
+
+<file path="src/oracle/providers/openai.rs">
+
+</file>
+
+<file path="src/oracle/client.rs">
+
+</file>
+
+<file path="src/oracle/directive.rs">
+use serde::{Serialize, Deserialize};
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Directive {
+    pub id: String,
+    pub target: Vec<String>,
+    pub intent: String,
+    pub constraints: Vec<String>,
+    pub rationale: String,
+    pub priority: String,
+    pub expected_outcome: ExpectedOutcome,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ExpectedOutcome {
+    pub witnesses_that_should_flip: Vec<String>,
+    pub objective_target: f64,
+}
+</file>
+
+<file path="src/oracle/mod.rs">
+pub mod client;
+pub mod directive;
+pub mod providers;
+
+pub use directive::*;
+</file>
+
+<file path="src/orchestration/mod.rs">
+pub mod orchestrator;
+
+pub use orchestrator::*;
+</file>
+
+<file path="src/orchestration/orchestrator.rs">
+pub struct Orchestrator {
+    pub max_iterations: usize,
+    pub convergence_k: usize,
+}
+
+impl Orchestrator {
+    pub fn new() -> Self {
+        Self {
+            max_iterations: 50,
+            convergence_k: 3,
+        }
+    }
+
+    pub fn run(&self) -> anyhow::Result<()> {
+        Ok(())
+    }
+}
+</file>
+
+<file path="src/report/builder.rs">
+use crate::bundle::Bundle;
+use crate::report::{
+    BundleInfo, Report, RunInfo, SpecInfo, Summary,
+};
+use crate::runner::RunOutput;
+use crate::spec::Spec;
+use crate::witness::{Status, WitnessResult};
+use std::path::Path;
+
+/// Build a Report from the outputs of one verification run.
+///
+/// The caller is responsible for having already called
+/// runner.prepare, runner.invoke, and runner.parse. This
+/// function combines their results into a Report.
+pub fn build(
+    spec_path: &Path,
+    spec: &Spec,
+    bundle: &Bundle,
+    run: &RunOutput,
+    witness_results: Vec<WitnessResult>,
+) -> Report {
+    let spec_info = SpecInfo {
+        name: spec.name.clone(),
+        path: spec_path.to_string_lossy().into_owned(),
+        fingerprint: spec.fingerprint(),
+        targets: spec.targets.clone(),
+        runner: spec.runner.clone(),
+        lang: spec.lang.clone(),
+    };
+
+    let byte_count: usize = bundle.files.values().map(|c| c.len()).sum();
+    let bundle_info = BundleInfo {
+        fingerprint: bundle.fingerprint.clone(),
+        file_count: bundle.files.len(),
+        byte_count,
+    };
+
+    let run_info = RunInfo {
+        timestamp_ms: now_ms(),
+        duration_ms: run.duration_ms,
+        exit_code: run.exit_code,
+        cached: false,
+    };
+
+    let summary = summarize(spec, &witness_results);
+
+    let mut report = Report {
+        assay_version: env!("CARGO_PKG_VERSION").to_string(),
+        spec: spec_info,
+        bundle: bundle_info,
+        run: run_info,
+        witnesses: witness_results,
+        summary,
+        report_fingerprint: String::new(),
+    };
+
+    report.report_fingerprint = report.compute_fingerprint();
+    report
+}
+
+fn summarize(spec: &Spec, results: &[WitnessResult]) -> Summary {
+    let total = results.len();
+    let mut passed = 0;
+    let mut failed = 0;
+    let mut errored = 0;
+    let mut skipped = 0;
+
+    for r in results {
+        match r.status {
+            Status::Pass => passed += 1,
+            Status::Fail => failed += 1,
+            Status::Skip => skipped += 1,
+            Status::Error => errored += 1,
+        }
+    }
+
+    // Walk witnesses and results in lockstep to classify by kind.
+    let mut hard_total = 0;
+    let mut hard_passed = 0;
+    let mut soft_total = 0;
+    let mut soft_passed = 0;
+    let mut soft_weight_sum = 0.0_f64;
+    let mut soft_weight_passed = 0.0_f64;
+
+    for (w, r) in spec.witnesses.iter().zip(results.iter()) {
+        match w.kind {
+            crate::witness::Kind::Hard => {
+                hard_total += 1;
+                if matches!(r.status, Status::Pass) {
+                    hard_passed += 1;
+                }
+            }
+            crate::witness::Kind::Soft(weight) => {
+                soft_total += 1;
+                soft_weight_sum += weight;
+                if matches!(r.status, Status::Pass) {
+                    soft_passed += 1;
+                    soft_weight_passed += weight;
+                }
+            }
+        }
+    }
+
+    // The objective is 1.0 when there are no soft witnesses, as the empty sum
+    // over an empty set is trivially satisfied.
+    let objective = if soft_weight_sum > 0.0 {
+        soft_weight_passed / soft_weight_sum
+    } else {
+        1.0
+    };
+
+    let satisfied = hard_total == hard_passed && errored == 0;
+
+    Summary {
+        total,
+        passed,
+        failed,
+        errored,
+        skipped,
+        hard_total,
+        hard_passed,
+        soft_total,
+        soft_passed,
+        satisfied,
+        objective,
+    }
+}
+
+fn now_ms() -> u64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+</file>
+
+<file path="src/report/fingerprint.rs">
+use crate::report::Report;
+use sha2::{Digest, Sha256};
+
+/// Compute the SHA-256 fingerprint of a report's canonical JSON
+/// body. The report_fingerprint field is excluded from the body
+/// (see Report::canonical_json). The result is prefixed with
+/// "sha256:" to identify the algorithm.
+pub fn compute(report: &Report) -> String {
+    let body = report.canonical_json();
+    let mut hasher = Sha256::new();
+    hasher.update(body.as_bytes());
+    let digest = hasher.finalize();
+    format!("sha256:{}", hex_encode(&digest))
+}
+
+fn hex_encode(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for b in bytes {
+        out.push(HEX[(b >> 4) as usize] as char);
+        out.push(HEX[(b & 0x0f) as usize] as char);
+    }
+    out
+}
+</file>
+
+<file path="src/report/mod.rs">
+pub mod builder;
+pub mod fingerprint;
+
+use serde::{Serialize, Deserialize};
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Report {
+    pub assay_version: String,
+    pub spec: SpecInfo,
+    pub bundle: BundleInfo,
+    pub run: RunInfo,
+    pub witnesses: Vec<crate::witness::WitnessResult>,
+    pub summary: Summary,
+    pub report_fingerprint: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SpecInfo {
+    pub name: String,
+    pub path: String,
+    pub fingerprint: String,
+    pub targets: Vec<String>,
+    pub runner: String,
+    pub lang: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct BundleInfo {
+    pub fingerprint: String,
+    pub file_count: usize,
+    pub byte_count: usize,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct RunInfo {
+    pub timestamp_ms: u64,
+    pub duration_ms: u64,
+    pub exit_code: i32,
+    pub cached: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Summary {
+    pub total: usize,
+    pub passed: usize,
+    pub failed: usize,
+    pub errored: usize,
+    pub skipped: usize,
+    pub hard_total: usize,
+    pub hard_passed: usize,
+    pub soft_total: usize,
+    pub soft_passed: usize,
+    pub satisfied: bool,
+    pub objective: f64,
+}
+
+impl Report {
+    /// Construct a minimal Report for testing. All fields are
+    /// set to placeholders except the two fingerprints.
+    pub fn empty_for_test(spec_fp: &str, bundle_fp: &str) -> Self {
+        Report {
+            assay_version: "2.0.0".to_string(),
+            spec: SpecInfo {
+                name: "test".to_string(),
+                path: "test.assay".to_string(),
+                fingerprint: spec_fp.to_string(),
+                targets: Vec::new(),
+                runner: "rust".to_string(),
+                lang: "rust".to_string(),
+            },
+            bundle: BundleInfo {
+                fingerprint: bundle_fp.to_string(),
+                file_count: 0,
+                byte_count: 0,
+            },
+            run: RunInfo {
+                timestamp_ms: 0,
+                duration_ms: 0,
+                exit_code: 0,
+                cached: false,
+            },
+            witnesses: Vec::new(),
+            summary: Summary {
+                total: 0,
+                passed: 0,
+                failed: 0,
+                errored: 0,
+                skipped: 0,
+                hard_total: 0,
+                hard_passed: 0,
+                soft_total: 0,
+                soft_passed: 0,
+                satisfied: false,
+                objective: 0.0,
+            },
+            report_fingerprint: String::new(),
+        }
+    }
+
+    /// Produce the canonical JSON representation of this report,
+    /// excluding the report_fingerprint field. Keys are sorted
+    /// alphabetically. No insignificant whitespace. This string
+    /// is the input to the SHA-256 fingerprint.
+    /// Note: floats serialize with default precision. Six-decimal formatting
+    /// as mentioned in SPEC.md §7.3 is deferred.
+    pub fn canonical_json(&self) -> String {
+        let mut value = serde_json::to_value(self)
+            .expect("Report must be serializable to Value");
+        if let Some(obj) = value.as_object_mut() {
+            obj.remove("report_fingerprint");
+        }
+        serde_json::to_string(&value)
+            .expect("Value must be serializable to String")
+    }
+
+    /// Canonical JSON including the report_fingerprint field.
+    /// Used for the --frozen output path.
+    pub fn canonical_json_with_fingerprint(&self) -> String {
+        serde_json::to_string(self)
+            .expect("Report must serialize to String")
+    }
+
+    /// Compute the fingerprint of this report's canonical body.
+    /// Does not mutate self. Caller assigns the result to the
+    /// report_fingerprint field before emitting the report.
+    pub fn compute_fingerprint(&self) -> String {
+        crate::report::fingerprint::compute(self)
+    }
+}
+</file>
+
+<file path="src/runner/mod.rs">
+pub mod rust;
+pub mod python;
+pub mod node;
+pub mod shell;
+
+use crate::bundle::Bundle;
+use crate::spec::Spec;
+use crate::witness::{Witness, WitnessResult};
+use std::path::Path;
+use anyhow::Result;
+
+pub struct RunOutput {
+    pub exit_code: i32,
+    pub stdout: String,
+    pub stderr: String,
+    pub duration_ms: u64,
+    pub per_witness: Vec<WitnessResult>,
+}
+
+pub trait Runner {
+    fn name(&self) -> &'static str;
+    fn prepare(
+        &self,
+        dir: &Path,
+        spec: &Spec,
+        bundle: &Bundle,
+        witnesses: &[Witness],
+    ) -> Result<()>;
+    fn invoke(&self, dir: &Path, args: &[String]) -> Result<RunOutput>;
+    fn parse(&self, output: &RunOutput, witnesses: &[Witness]) -> Vec<WitnessResult>;
+}
+
+pub use rust::RustRunner;
+pub use python::PythonRunner;
+pub use node::NodeRunner;
+pub use shell::ShellRunner;
+</file>
+
+<file path="src/runner/node.rs">
+use crate::bundle::Bundle;
+use crate::runner::{RunOutput, Runner};
+use crate::spec::Spec;
+use crate::witness::{Witness, WitnessResult};
+use anyhow::{anyhow, Result};
+use std::path::Path;
+
+pub struct NodeRunner;
+
+impl Runner for NodeRunner {
+    fn name(&self) -> &'static str { "node" }
+    fn prepare(&self, _dir: &Path, _spec: &Spec, _bundle: &Bundle, _w: &[Witness]) -> Result<()> {
+        Err(anyhow!("node runner not yet implemented"))
+    }
+    fn invoke(&self, _dir: &Path, _args: &[String]) -> Result<RunOutput> {
+        Err(anyhow!("node runner not yet implemented"))
+    }
+    fn parse(&self, _o: &RunOutput, _w: &[Witness]) -> Vec<WitnessResult> {
+        Vec::new()
+    }
+}
+</file>
+
+<file path="src/runner/python.rs">
+use crate::bundle::Bundle;
+use crate::runner::{RunOutput, Runner};
+use crate::spec::Spec;
+use crate::witness::{Witness, WitnessResult};
+use anyhow::{anyhow, Result};
+use std::path::Path;
+
+pub struct PythonRunner;
+
+impl Runner for PythonRunner {
+    fn name(&self) -> &'static str { "python" }
+    fn prepare(&self, _dir: &Path, _spec: &Spec, _bundle: &Bundle, _w: &[Witness]) -> Result<()> {
+        Err(anyhow!("python runner not yet implemented"))
+    }
+    fn invoke(&self, _dir: &Path, _args: &[String]) -> Result<RunOutput> {
+        Err(anyhow!("python runner not yet implemented"))
+    }
+    fn parse(&self, _o: &RunOutput, _w: &[Witness]) -> Vec<WitnessResult> {
+        Vec::new()
+    }
+}
+</file>
+
+<file path="src/runner/rust.rs">
+use crate::bundle::Bundle;
+use crate::runner::{RunOutput, Runner};
+use crate::spec::Spec;
+use crate::witness::{Status, Witness, WitnessResult};
+use anyhow::{anyhow, Context, Result};
+use std::fs;
+use std::path::Path;
+use std::process::Command;
+use std::time::Instant;
+
+pub struct RustRunner;
+
+impl RustRunner {
+    pub fn new() -> Self { RustRunner }
+}
+
+impl Runner for RustRunner {
+    fn name(&self) -> &'static str { "rust" }
+
+    fn prepare(
+        &self,
+        dir: &Path,
+        spec: &Spec,
+        bundle: &Bundle,
+        witnesses: &[Witness],
+    ) -> Result<()> {
+        if spec.targets.is_empty() {
+            return Err(anyhow!("spec has no targets"));
+        }
+        if spec.targets.len() > 1 {
+            return Err(anyhow!(
+                "phase 1 runner supports exactly one target; spec has {}",
+                spec.targets.len()
+            ));
+        }
+
+        for (path, content) in &bundle.files {
+            let p = dir.join(path);
+            if let Some(parent) = p.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            fs::write(&p, content)?;
+        }
+
+        let target = &spec.targets[0];
+        let content = bundle.files.get(target).ok_or_else(|| {
+            anyhow!("target '{}' not found in bundle", target)
+        })?;
+
+        let injected = inject_witness_module(content, spec, witnesses);
+        let final_content = wrap_with_crate_attrs(&injected);
+
+        let target_path = dir.join(target);
+        fs::write(&target_path, final_content)?;
+
+        if !bundle.files.contains_key("Cargo.toml") {
+            let cargo_toml = format!(
+                r#"[package]
+name = "assay_temp_verify"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[lib]
+path = "{}"
+
+[profile.test]
+debug = false
+"#,
+                target
+            );
+            fs::write(dir.join("Cargo.toml"), cargo_toml)?;
+        }
+
+        Ok(())
+    }
+
+    fn invoke(&self, dir: &Path, args: &[String]) -> Result<RunOutput> {
+        let start = Instant::now();
+        let mut cmd = Command::new("cargo");
+        cmd.arg("test");
+        for a in args {
+            cmd.arg(a);
+        }
+        cmd.current_dir(dir);
+
+        let output = cmd
+            .output()
+            .with_context(|| "failed to spawn cargo (is it on PATH?)")?;
+
+        let duration_ms = start.elapsed().as_millis() as u64;
+
+        Ok(RunOutput {
+            exit_code: output.status.code().unwrap_or(-1),
+            stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+            stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+            duration_ms,
+            per_witness: Vec::new(),
+        })
+    }
+
+    fn parse(&self, output: &RunOutput, witnesses: &[Witness]) -> Vec<WitnessResult> {
+        let mut combined = String::with_capacity(output.stdout.len() + output.stderr.len() + 1);
+        combined.push_str(&output.stdout);
+        combined.push('\n');
+        combined.push_str(&output.stderr);
+
+        let mut results = Vec::with_capacity(witnesses.len());
+
+        for (idx, w) in witnesses.iter().enumerate() {
+            let test_name = sanitize_test_name(idx, &w.name);
+            let full_path = format!("assay_tests::{}", test_name);
+
+            let status = find_test_status(&combined, &full_path);
+
+            let detail = if matches!(status, Status::Fail) {
+                find_panic_detail(&combined, &full_path)
+            } else if matches!(status, Status::Error) {
+                Some("witness did not appear in test output".to_string())
+            } else {
+                None
+            };
+
+            results.push(WitnessResult {
+                name: w.name.clone(),
+                status,
+                detail,
+                duration_ms: None,
+            });
+        }
+
+        results
+    }
+}
+
+// ---------- helpers ----------
+
+fn inject_witness_module(content: &str, spec: &Spec, witnesses: &[Witness]) -> String {
+    let mut out = String::with_capacity(content.len() + 1024);
+
+    // Strip any previously injected block. Idempotent.
+    const MARKER: &str = "// ===== ASSAY GENERATED TESTS =====";
+    if let Some(pos) = content.find(MARKER) {
+        out.push_str(content[..pos].trim_end());
+        out.push('\n');
+    } else {
+        out.push_str(content);
+        if !content.ends_with('\n') {
+            out.push('\n');
+        }
+    }
+
+    out.push('\n');
+    out.push_str(MARKER);
+    out.push('\n');
+    out.push_str("#[cfg(test)]\n");
+    out.push_str("mod assay_tests {\n");
+    out.push_str("    #![allow(unused_imports, dead_code, unused_variables, unused_mut)]\n");
+    out.push_str("    use super::*;\n\n");
+
+    // Fixtures concatenated in order.
+    for f in &spec.fixtures {
+        out.push_str("    // fixture: ");
+        out.push_str(&f.name);
+        out.push('\n');
+        for line in f.body.lines() {
+            out.push_str("    ");
+            out.push_str(line);
+            out.push('\n');
+        }
+        out.push('\n');
+    }
+
+    // One test per witness.
+    for (idx, w) in witnesses.iter().enumerate() {
+        let name = sanitize_test_name(idx, &w.name);
+        out.push_str("    #[test]\n");
+        out.push_str("    fn ");
+        out.push_str(&name);
+        out.push_str("() {\n");
+        out.push_str("        assert!(\n");
+        out.push_str("            { ");
+        out.push_str(&w.body);
+        out.push_str(" },\n");
+        out.push_str(&format!(
+            "            \"assay witness '{}' failed\"\n",
+            escape_for_rust_string(&w.name)
+        ));
+        out.push_str("        );\n");
+        out.push_str("    }\n\n");
+    }
+
+    out.push_str("}\n");
+    out
+}
+
+fn wrap_with_crate_attrs(content: &str) -> String {
+    // If the file already starts with an inner attribute block, leave
+    // it alone. Otherwise prepend allow attributes.
+    let trimmed = content.trim_start();
+    if trimmed.starts_with("#![") {
+        return content.to_string();
+    }
+    let mut out = String::with_capacity(content.len() + 64);
+    out.push_str("#![allow(dead_code, unused_imports, unused_variables, unused_mut)]\n");
+    out.push_str(content);
+    out
+}
+
+fn sanitize_test_name(idx: usize, name: &str) -> String {
+    let mut s = String::with_capacity(name.len() + 8);
+    s.push_str("witness_");
+    s.push_str(&idx.to_string());
+    s.push('_');
+    for c in name.chars() {
+        if c.is_ascii_alphanumeric() {
+            s.push(c.to_ascii_lowercase());
+        } else if c == '_' || c == '-' || c == ' ' {
+            s.push('_');
+        }
+    }
+    // Collapse consecutive underscores.
+    let mut out = String::with_capacity(s.len());
+    let mut prev_underscore = false;
+    for c in s.chars() {
+        if c == '_' {
+            if !prev_underscore {
+                out.push(c);
+            }
+            prev_underscore = true;
+        } else {
+            out.push(c);
+            prev_underscore = false;
+        }
+    }
+    out.trim_end_matches('_').to_string()
+}
+
+fn find_test_status(combined: &str, full_path: &str) -> Status {
+    // Match lines like:
+    //   test assay_tests::witness_0_empty_input ... ok
+    //   test assay_tests::witness_1_foo ... FAILED
+    let needle = format!("test {} ...", full_path);
+    for line in combined.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with(&needle) {
+            let tail = trimmed[needle.len()..].trim();
+            if tail.starts_with("ok") {
+                return Status::Pass;
+            }
+            if tail.starts_with("FAILED") {
+                return Status::Fail;
+            }
+            if tail.starts_with("ignored") {
+                return Status::Skip;
+            }
+        }
+    }
+    Status::Error
+}
+
+fn find_panic_detail(combined: &str, full_path: &str) -> Option<String> {
+    // Cargo test emits failing test details in a section like:
+    //   ---- assay_tests::witness_1_foo stdout ----
+    //   thread 'assay_tests::witness_1_foo' panicked at ...
+    //   <assertion message>
+    //
+    // We capture everything between the header and the next blank
+    // line, up to 20 lines.
+    let header = format!("---- {} stdout ----", full_path);
+    let mut capturing = false;
+    let mut lines: Vec<&str> = Vec::new();
+    for line in combined.lines() {
+        if capturing {
+            if line.trim().is_empty() {
+                if !lines.is_empty() {
+                    break;
+                }
+                continue;
+            }
+            lines.push(line);
+            if lines.len() >= 20 {
+                break;
+            }
+        } else if line.trim() == header {
+            capturing = true;
+        }
+    }
+    if lines.is_empty() {
+        None
+    } else {
+        Some(lines.join("\n"))
+    }
+}
+
+fn escape_for_rust_string(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            other => out.push(other),
+        }
+    }
+    out
+}
+</file>
+
+<file path="src/runner/shell.rs">
+use crate::bundle::Bundle;
+use crate::runner::{RunOutput, Runner};
+use crate::spec::Spec;
+use crate::witness::{Witness, WitnessResult};
+use anyhow::{anyhow, Result};
+use std::path::Path;
+
+pub struct ShellRunner;
+
+impl Runner for ShellRunner {
+    fn name(&self) -> &'static str { "shell" }
+    fn prepare(&self, _dir: &Path, _spec: &Spec, _bundle: &Bundle, _w: &[Witness]) -> Result<()> {
+        Err(anyhow!("shell runner not yet implemented"))
+    }
+    fn invoke(&self, _dir: &Path, _args: &[String]) -> Result<RunOutput> {
+        Err(anyhow!("shell runner not yet implemented"))
+    }
+    fn parse(&self, _o: &RunOutput, _w: &[Witness]) -> Vec<WitnessResult> {
+        Vec::new()
+    }
+}
+</file>
+
+<file path="src/spec/ast.rs">
+use serde::Serialize;
+
+#[derive(Debug, Clone, Serialize)]
+pub struct Spec {
+    pub name: String,
+    pub targets: Vec<String>,
+    pub runner: String,
+    pub runner_args: Vec<String>,
+    pub lang: String,
+    pub fixtures: Vec<Fixture>,
+    pub witnesses: Vec<crate::witness::Witness>,
+    pub objectives: Vec<Objective>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct Fixture {
+    pub name: String,
+    pub body: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct Objective {
+    pub kind: ObjectiveKind,
+    pub name: String,
+    pub target: Option<f64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub enum ObjectiveKind {
+    Minimise,
+    Maximise,
+}
+
+impl Spec {
+    /// Canonical JSON representation. Keys sorted, no
+    /// insignificant whitespace. Input to the fingerprint.
+    pub fn canonical_json(&self) -> String {
+        let value = serde_json::to_value(self)
+            .expect("Spec must be serializable to Value");
+        serde_json::to_string(&value)
+            .expect("Value must be serializable to String")
+    }
+
+    /// SHA-256 over canonical_json, prefixed with "sha256:".
+    pub fn fingerprint(&self) -> String {
+        use sha2::{Digest, Sha256};
+        let body = self.canonical_json();
+        let mut hasher = Sha256::new();
+        hasher.update(body.as_bytes());
+        let digest = hasher.finalize();
+        format!("sha256:{}", hex_encode(&digest))
+    }
+}
+
+fn hex_encode(bytes: &[u8]) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for b in bytes {
+        out.push(HEX[(b >> 4) as usize] as char);
+        out.push(HEX[(b & 0x0f) as usize] as char);
+    }
+    out
+}
+</file>
+
+<file path="src/spec/mod.rs">
+pub mod ast;
+pub mod parser;
+
+pub use ast::*;
+pub use parser::parse_file;
+</file>
+
+<file path="src/spec/parser.rs">
+use crate::spec::{Spec, Fixture};
+use crate::witness::{Witness, Kind};
+use anyhow::Result;
+
+fn split_quoted(s: &str) -> Result<(String, &str)> {
+    let s = s.trim_start();
+    if !s.starts_with('"') {
+        return Err(anyhow::anyhow!("Expected quoted string"));
+    }
+    let s = &s[1..];
+    if let Some(idx) = s.find('"') {
+        Ok((s[..idx].to_string(), &s[idx + 1..]))
+    } else {
+        Err(anyhow::anyhow!("Unterminated quoted string"))
+    }
+}
+
+fn extract_quoted(s: &str) -> Result<String> {
+    let (quoted, rest) = split_quoted(s)?;
+    if !rest.trim().is_empty() {
+        return Err(anyhow::anyhow!("Unexpected trailing content after quoted string: '{}'", rest));
+    }
+    Ok(quoted)
+}
+
+fn extract_string_array(s: &str) -> Result<Vec<String>> {
+    let s = s.trim();
+    if !s.starts_with('[') || !s.ends_with(']') {
+        return Err(anyhow::anyhow!("Expected array to be enclosed in [...]"));
+    }
+    let inner = s[1..s.len() - 1].trim();
+    if inner.is_empty() {
+        return Ok(Vec::new());
+    }
+    
+    let mut res = Vec::new();
+    let mut current = String::new();
+    let mut in_quotes = false;
+    
+    for c in inner.chars() {
+        match c {
+            '"' => {
+                in_quotes = !in_quotes;
+                current.push('"');
+            }
+            ',' if !in_quotes => {
+                res.push(extract_quoted(current.trim())?);
+                current.clear();
+            }
+            _ => {
+                current.push(c);
+            }
+        }
+    }
+    let last = current.trim();
+    if !last.is_empty() {
+        res.push(extract_quoted(last)?);
+    }
+    
+    Ok(res)
+}
+
+fn collect_block(lines: &[&str], start: usize) -> Result<(String, usize)> {
+    let mut i = start;
+    let mut block_lines = Vec::new();
+    
+    while i < lines.len() {
+        let line = lines[i];
+        if line.trim() == "}" {
+            break;
+        }
+        block_lines.push(line);
+        i += 1;
+    }
+    
+    if i == lines.len() {
+        return Err(anyhow::anyhow!("unterminated block starting around line {}", start));
+    }
+    
+    let mut min_indent = None;
+    for line in &block_lines {
+        if !line.trim().is_empty() {
+            let indent = line.chars().take_while(|c| c.is_whitespace()).count();
+            min_indent = Some(min_indent.unwrap_or(indent).min(indent));
+        }
+    }
+    
+    let strip_chars = min_indent.unwrap_or(0);
+    
+    let mut body = Vec::new();
+    for line in block_lines {
+        if line.trim().is_empty() {
+            body.push(String::new());
+        } else {
+            let stripped: String = line.chars().skip(strip_chars).collect();
+            body.push(stripped);
+        }
+    }
+    
+    Ok((body.join("\n"), i))
+}
+
+pub fn parse_file(path: &std::path::Path) -> Result<Spec> {
+    let content = std::fs::read_to_string(path)?;
+    let lines: Vec<&str> = content.lines().collect();
+    
+    let mut name = None;
+    let mut targets = Vec::new();
+    let mut runner = None;
+    let mut runner_args = Vec::new();
+    let mut lang = None;
+    let mut fixtures = Vec::new();
+    let mut witnesses = Vec::new();
+    let mut objectives = Vec::new();
+    
+    let mut i = 0;
+    while i < lines.len() {
+        let line = lines[i];
+        let trimmed = line.trim();
+        
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            i += 1;
+            continue;
+        }
+        
+        let (keyword, rest) = match trimmed.split_once(|c: char| c.is_whitespace()) {
+            Some((k, r)) => (k, r.trim()),
+            None => (trimmed, ""),
+        };
+        
+        match keyword {
+            "spec" => {
+                if name.is_some() {
+                    return Err(anyhow::anyhow!("Duplicate 'spec' directive at line {}", i + 1));
+                }
+                name = Some(extract_quoted(rest)?);
+            }
+            "target" => {
+                targets.push(extract_quoted(rest)?);
+            }
+            "runner" => {
+                if runner.is_some() {
+                    return Err(anyhow::anyhow!("Duplicate 'runner' directive at line {}", i + 1));
+                }
+                runner = Some(rest.to_string());
+            }
+            "runner_args" => {
+                runner_args = extract_string_array(rest)?;
+            }
+            "lang" => {
+                lang = Some(rest.to_string());
+            }
+            "fixture" => {
+                if !rest.ends_with('{') {
+                    return Err(anyhow::anyhow!("Expected '{{' at the end of fixture at line {}", i + 1));
+                }
+                let f_name = rest.trim_end_matches('{').trim().to_string();
+                let (body, next_i) = collect_block(&lines, i + 1)?;
+                fixtures.push(Fixture { name: f_name, body });
+                i = next_i;
+            }
+            "witness" => {
+                let (w_name, remainder) = split_quoted(rest)?;
+                let remainder = remainder.trim();
+                if !remainder.ends_with('{') {
+                    return Err(anyhow::anyhow!("Expected '{{' at the end of witness at line {}", i + 1));
+                }
+                let mode_str = remainder.trim_end_matches('{').trim();
+                let kind = if mode_str == "hard" {
+                    Kind::Hard
+                } else if mode_str.starts_with("soft weight ") {
+                    let weight_str = mode_str["soft weight ".len()..].trim();
+                    let w: f64 = weight_str.parse().map_err(|e| anyhow::anyhow!("Failed to parse soft weight at line {}: {}", i + 1, e))?;
+                    Kind::Soft(w)
+                } else {
+                    return Err(anyhow::anyhow!("Unknown witness mode '{}' at line {}", mode_str, i + 1));
+                };
+                
+                let (body, next_i) = collect_block(&lines, i + 1)?;
+                witnesses.push(Witness { name: w_name, kind, body });
+                i = next_i;
+            }
+            "objective" => {
+                if !rest.ends_with('{') {
+                    return Err(anyhow::anyhow!("Expected '{{' at the end of objective at line {}", i + 1));
+                }
+                let (body, next_i) = collect_block(&lines, i + 1)?;
+                for line in body.lines() {
+                    let trimmed = line.trim();
+                    if trimmed.is_empty() || trimmed.starts_with('#') {
+                        continue;
+                    }
+                    let (kind_str, o_rest) = match trimmed.split_once(|c: char| c.is_whitespace()) {
+                        Some((k, r)) => (k, r.trim()),
+                        None => return Err(anyhow::anyhow!("Invalid objective line: {}", trimmed)),
+                    };
+                    let kind = match kind_str {
+                        "minimises" => crate::spec::ObjectiveKind::Minimise,
+                        "maximises" => crate::spec::ObjectiveKind::Maximise,
+                        _ => return Err(anyhow::anyhow!("Unknown objective kind: {}", kind_str)),
+                    };
+                    
+                    let (o_name, mut o_rest2) = split_quoted(o_rest)?;
+                    o_rest2 = o_rest2.trim();
+                    
+                    let mut target = None;
+                    if o_rest2.starts_with("target ") {
+                        let t_str = o_rest2["target ".len()..].trim();
+                        let t: f64 = t_str.parse().map_err(|e| anyhow::anyhow!("Failed to parse objective target: {}", e))?;
+                        target = Some(t);
+                    } else if !o_rest2.is_empty() {
+                        return Err(anyhow::anyhow!("Unexpected tokens in objective line: {}", o_rest2));
+                    }
+                    
+                    objectives.push(crate::spec::Objective { kind, name: o_name, target });
+                }
+                i = next_i;
+            }
+            _ => {
+                return Err(anyhow::anyhow!("Unknown keyword at line {}: {}", i + 1, keyword));
+            }
+        }
+        
+        i += 1;
+    }
+    
+    let name = name.ok_or_else(|| anyhow::anyhow!("Missing 'spec' directive"))?;
+    if targets.is_empty() {
+        return Err(anyhow::anyhow!("Missing 'target' directive"));
+    }
+    let runner = runner.ok_or_else(|| anyhow::anyhow!("Missing 'runner' directive"))?;
+    let lang = lang.ok_or_else(|| anyhow::anyhow!("Missing 'lang' directive"))?;
+    
+    Ok(Spec {
+        name,
+        targets,
+        runner,
+        runner_args,
+        lang,
+        fixtures,
+        witnesses,
+        objectives,
+    })
+}
+</file>
+
+<file path="src/witness/mod.rs">
+pub mod result;
+
+pub use result::*;
+
+use serde::{Serialize, Deserialize};
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum Kind {
+    Hard,
+    Soft(f64),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Witness {
+    pub name: String,
+    pub kind: Kind,
+    pub body: String,
+}
+</file>
+
+<file path="src/witness/result.rs">
+use serde::{Serialize, Deserialize};
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum Status {
+    Pass,
+    Fail,
+    Skip,
+    Error,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WitnessResult {
+    pub name: String,
+    pub status: Status,
+    pub detail: Option<String>,
+    pub duration_ms: Option<u64>,
+}
+</file>
+
+<file path="src/App.tsx">
+/**
+ * @license
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
+export default function App() {
+  return <div></div>;
+}
+</file>
+
+<file path="src/index.css">
+@import "tailwindcss";
+</file>
+
+<file path="src/lib.rs">
+pub mod bundle;
+pub mod spec;
+pub mod witness;
+pub mod runner;
+pub mod report;
+pub mod oracle;
+pub mod orchestration;
+pub mod verify;
+</file>
+
+<file path="src/main.rs">
+use clap::{Parser, Subcommand};
+use anyhow::Result;
+use assay::*;
+
+#[derive(Parser)]
+#[command(name = "assay")]
+#[command(version = "2.0.0")]
+#[command(about = "A Universal Verifier and Oracle Protocol", long_about = None)]
+struct Cli {
+    #[command(subcommand)]
+    command: Commands,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    /// Verify a bundle against a spec. Emit a report.
+    Verify {
+        spec: String,
+        #[arg(long)]
+        bundle: String,
+        #[arg(long)]
+        out: Option<String>,
+        #[arg(long)]
+        frozen: bool,
+    },
+    /// Same as verify, but always exit 0.
+    Report {
+        spec: String,
+        #[arg(long)]
+        bundle: String,
+        #[arg(long)]
+        out: Option<String>,
+        #[arg(long)]
+        frozen: bool,
+    },
+    /// Compare two reports.
+    Diff {
+        report_a: String,
+        report_b: String,
+    },
+    /// Invoke the oracle. Emit a directive.
+    Oracle {
+        spec: String,
+        #[arg(long)]
+        report: String,
+        #[arg(long)]
+        provider: Option<String>,
+    },
+    /// Run the loop.
+    Loop {
+        spec: String,
+        #[arg(long)]
+        bundle: Option<String>,
+    },
+    /// Scaffold a new project.
+    Init {
+        dir: Option<String>,
+    },
+    /// Canonicalize a spec.
+    Fmt {
+        spec: String,
+    },
+    /// Print JSON schemas for reports and directives.
+    Schema,
+    /// Print version and exit.
+    Version,
+}
+
+fn main() -> Result<()> {
+    let cli = Cli::parse();
+    match &cli.command {
+        Commands::Verify { spec, bundle, out, frozen } => {
+            use std::path::Path;
+            let report = assay::verify::verify(
+                Path::new(spec),
+                Path::new(bundle),
+            )?;
+
+            let json = if *frozen {
+                // Frozen reports strip the two nondeterministic fields.
+                // For phase 1 we emit the same JSON; --frozen is a hint
+                // for future caching, not a different serialization.
+                report.canonical_json_with_fingerprint()
+            } else {
+                serde_json::to_string_pretty(&report)
+                    .expect("Report must serialize")
+            };
+
+            match out {
+                Some(path) => {
+                    std::fs::write(path, &json)?;
+                    eprintln!("wrote report to {}", path);
+                }
+                None => {
+                    println!("{}", json);
+                }
+            }
+
+            if report.summary.satisfied {
+                return Ok(());
+            } else {
+                std::process::exit(1);
+            }
+        }
+        Commands::Report { .. } => {
+            println!("Generating report...");
+        }
+        Commands::Diff { .. } => {
+            println!("Diffing reports...");
+        }
+        Commands::Oracle { .. } => {
+            println!("Invoking oracle...");
+        }
+        Commands::Loop { .. } => {
+            println!("Starting loop...");
+        }
+        Commands::Init { .. } => {
+            println!("Initializing...");
+        }
+        Commands::Fmt { .. } => {
+            println!("Formatting spec...");
+        }
+        Commands::Schema => {
+            println!("Outputting schema...");
+        }
+        Commands::Version => {
+            println!("assay {}", env!("CARGO_PKG_VERSION"));
+            std::process::exit(0);
+        }
+    }
+    Ok(())
+}
+</file>
+
+<file path="src/main.tsx">
+import {StrictMode} from 'react';
+import {createRoot} from 'react-dom/client';
+import App from './App.tsx';
+import './index.css';
+
+createRoot(document.getElementById('root')!).render(
+  <StrictMode>
+    <App />
+  </StrictMode>,
+);
+</file>
+
+<file path="src/verify.rs">
+use crate::bundle;
+use crate::report::{self, Report};
+use crate::runner::{NodeRunner, PythonRunner, Runner, RustRunner, ShellRunner};
+use crate::spec;
+use anyhow::{anyhow, Context, Result};
+use std::path::Path;
+use tempfile::TempDir;
+
+/// Verify a spec against a bundle. This is the entry point the
+/// CLI calls. It:
+///
+///   1. Parses the spec.
+///   2. Parses the bundle.
+///   3. Selects a runner based on spec.runner.
+///   4. Creates a temp directory.
+///   5. Calls runner.prepare to extract files and inject tests.
+///   6. Calls runner.invoke to run the tests.
+///   7. Calls runner.parse to extract per-witness results.
+///   8. Builds the Report.
+///   9. Cleans up the temp directory.
+///
+/// Returns the Report on success. The caller inspects
+/// report.summary.satisfied to determine the exit code.
+pub fn verify(spec_path: &Path, bundle_path: &Path) -> Result<Report> {
+    let parsed_spec = spec::parse_file(spec_path)
+        .with_context(|| format!("parsing spec {}", spec_path.display()))?;
+
+    let parsed_bundle = bundle::parse_file(bundle_path)
+        .with_context(|| format!("parsing bundle {}", bundle_path.display()))?;
+
+    let runner = select_runner(&parsed_spec.runner)?;
+
+    let tmp = TempDir::new()
+        .context("creating temporary directory")?;
+
+    runner
+        .prepare(tmp.path(), &parsed_spec, &parsed_bundle, &parsed_spec.witnesses)
+        .context("preparing runner in temporary directory")?;
+
+    let run_output = runner
+        .invoke(tmp.path(), &parsed_spec.runner_args)
+        .context("invoking runner")?;
+
+    let witness_results = runner.parse(&run_output, &parsed_spec.witnesses);
+
+    let report = report::builder::build(
+        spec_path,
+        &parsed_spec,
+        &parsed_bundle,
+        &run_output,
+        witness_results,
+    );
+
+    // tmp is dropped here and the directory is deleted.
+    Ok(report)
+}
+
+fn select_runner(name: &str) -> Result<Box<dyn Runner>> {
+    match name {
+        "rust" => Ok(Box::new(RustRunner::new())),
+        "python" => Ok(Box::new(PythonRunner)),
+        "node" => Ok(Box::new(NodeRunner)),
+        "shell" => Ok(Box::new(ShellRunner)),
+        other => Err(anyhow!(
+            "unknown runner '{}'; expected one of rust, python, node, shell",
+            other
+        )),
+    }
+}
+</file>
+
+<file path="tests/bundle_parser.rs">
+use assay::bundle::parse_file;
+use std::io::Write;
+use tempfile::NamedTempFile;
+
+fn write_temp(content: &str) -> NamedTempFile {
+    let mut f = NamedTempFile::new().unwrap();
+    write!(f, "{}", content).unwrap();
+    f
+}
+
+const MINIMAL: &str = r#"<file_summary>
+<purpose>test</purpose>
+</file_summary>
+
+<directory_structure>
+src/lib.rs
+</directory_structure>
+
+<files>
+<file path="src/lib.rs">
+<![CDATA[
+pub fn f() -> i32 { 1 }
+]]>
+</file>
+</files>"#;
+
+#[test]
+fn test_w8_bundle_parser_repomix() {
+    let f = write_temp(MINIMAL);
+    let bundle = parse_file(f.path()).unwrap();
+    assert!(bundle.files.contains_key("src/lib.rs"));
+    assert_eq!(bundle.files["src/lib.rs"], "pub fn f() -> i32 { 1 }");
+}
+
+#[test]
+fn test_w9_bundle_fingerprint_deterministic() {
+    let f = write_temp(MINIMAL);
+    let b1 = parse_file(f.path()).unwrap();
+    let b2 = parse_file(f.path()).unwrap();
+    assert_eq!(b1.fingerprint, b2.fingerprint);
+    assert!(b1.fingerprint.starts_with("sha256:"));
+}
+
+#[test]
+fn test_w10_bundle_fingerprint_order_independent() {
+    let a = r#"<file_summary/>
+<directory_structure>x</directory_structure>
+<files>
+<file path="a.rs"><![CDATA[aa]]></file>
+<file path="b.rs"><![CDATA[bb]]></file>
+</files>"#;
+
+    let b = r#"<file_summary/>
+<directory_structure>x</directory_structure>
+<files>
+<file path="b.rs"><![CDATA[bb]]></file>
+<file path="a.rs"><![CDATA[aa]]></file>
+</files>"#;
+
+    let fa = write_temp(a);
+    let fb = write_temp(b);
+    let ba = parse_file(fa.path()).unwrap();
+    let bb = parse_file(fb.path()).unwrap();
+    assert_eq!(ba.fingerprint, bb.fingerprint);
+}
+</file>
+
+<file path="tests/end_to_end.rs">
+use assay::verify::verify;
+use std::io::Write;
+use tempfile::TempDir;
+
+/// Write a file at `dir/rel`, creating parent directories.
+fn write_file(dir: &std::path::Path, rel: &str, content: &str) {
+    let path = dir.join(rel);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).unwrap();
+    }
+    let mut f = std::fs::File::create(&path).unwrap();
+    f.write_all(content.as_bytes()).unwrap();
+}
+
+/// Construct a bundle XML from a set of (path, content) pairs.
+/// This is the minimal Repomix shape our parser accepts.
+fn make_bundle_xml(files: &[(&str, &str)]) -> String {
+    let mut out = String::new();
+    out.push_str("<file_summary>\n<purpose>test</purpose>\n</file_summary>\n\n");
+    out.push_str("<directory_structure>\n");
+    for (p, _) in files {
+        out.push_str(p);
+        out.push('\n');
+    }
+    out.push_str("</directory_structure>\n\n<files>\n");
+    for (p, c) in files {
+        out.push_str(&format!(
+            "<file path=\"{}\">\n<![CDATA[\n{}\n]]>\n</file>\n",
+            p, c
+        ));
+    }
+    out.push_str("</files>\n");
+    out
+}
+
+#[test]
+fn test_end_to_end_passing_spec() {
+    let tmp = TempDir::new().unwrap();
+
+    // The spec targets src/lib.rs and asserts a single fact.
+    let spec_content = r#"
+spec "e2e"
+target "src/lib.rs"
+runner rust
+lang rust
+
+witness "add works" hard {
+    add(2, 3) == 5
+}
+"#;
+
+    let lib_content = "pub fn add(a: i32, b: i32) -> i32 { a + b }\n";
+
+    let bundle_xml = make_bundle_xml(&[("src/lib.rs", lib_content)]);
+
+    write_file(tmp.path(), "e2e.assay", spec_content);
+    write_file(tmp.path(), "bundle.xml", &bundle_xml);
+
+    let report = verify(
+        &tmp.path().join("e2e.assay"),
+        &tmp.path().join("bundle.xml"),
+    )
+    .expect("verify should succeed");
+
+    assert!(report.summary.satisfied, "spec should be satisfied");
+    assert_eq!(report.summary.hard_total, 1);
+    assert_eq!(report.summary.hard_passed, 1);
+    assert_eq!(report.summary.failed, 0);
+    assert!(report.report_fingerprint.starts_with("sha256:"));
+    assert!(report.spec.fingerprint.starts_with("sha256:"));
+    assert!(report.bundle.fingerprint.starts_with("sha256:"));
+}
+
+#[test]
+fn test_end_to_end_failing_spec() {
+    let tmp = TempDir::new().unwrap();
+
+    let spec_content = r#"
+spec "e2e"
+target "src/lib.rs"
+runner rust
+lang rust
+
+witness "add works" hard {
+    add(2, 3) == 5
+}
+"#;
+
+    // The stub returns the wrong answer, so the witness fails.
+    let lib_content = "pub fn add(a: i32, b: i32) -> i32 { a - b }\n";
+
+    let bundle_xml = make_bundle_xml(&[("src/lib.rs", lib_content)]);
+
+    write_file(tmp.path(), "e2e.assay", spec_content);
+    write_file(tmp.path(), "bundle.xml", &bundle_xml);
+
+    let report = verify(
+        &tmp.path().join("e2e.assay"),
+        &tmp.path().join("bundle.xml"),
+    )
+    .expect("verify should complete even on failure");
+
+    assert!(!report.summary.satisfied, "spec should NOT be satisfied");
+    assert_eq!(report.summary.hard_total, 1);
+    assert_eq!(report.summary.hard_passed, 0);
+    assert_eq!(report.summary.failed, 1);
+}
+
+#[test]
+fn test_end_to_end_unknown_runner() {
+    let tmp = TempDir::new().unwrap();
+
+    let spec_content = r#"
+spec "e2e"
+target "src/lib.rs"
+runner cobol
+lang rust
+
+witness "x" hard {
+    true
+}
+"#;
+
+    write_file(tmp.path(), "e2e.assay", spec_content);
+    write_file(tmp.path(), "bundle.xml", &make_bundle_xml(&[("src/lib.rs", "")]));
+
+    let result = verify(
+        &tmp.path().join("e2e.assay"),
+        &tmp.path().join("bundle.xml"),
+    );
+
+    assert!(result.is_err(), "unknown runner should error");
+}
+</file>
+
+<file path="tests/report_builder.rs">
+use assay::bundle::Bundle;
+use assay::report::builder::build;
+use assay::runner::RunOutput;
+use assay::spec::{Fixture, Objective, Spec};
+use assay::witness::{Kind, Status, Witness, WitnessResult};
+use std::collections::BTreeMap;
+use std::path::Path;
+
+fn make_spec() -> Spec {
+    Spec {
+        name: "test".to_string(),
+        targets: vec!["src/lib.rs".to_string()],
+        runner: "rust".to_string(),
+        runner_args: Vec::new(),
+        lang: "rust".to_string(),
+        fixtures: Vec::<Fixture>::new(),
+        witnesses: vec![
+            Witness { name: "h1".to_string(), kind: Kind::Hard, body: "true".to_string() },
+            Witness { name: "h2".to_string(), kind: Kind::Hard, body: "false".to_string() },
+            Witness { name: "s1".to_string(), kind: Kind::Soft(1.0), body: "true".to_string() },
+        ],
+        objectives: Vec::<Objective>::new(),
+    }
+}
+
+fn make_bundle() -> Bundle {
+    let mut files = BTreeMap::new();
+    files.insert("src/lib.rs".to_string(), "pub fn f() {}\n".to_string());
+    Bundle {
+        files,
+        metadata: BTreeMap::new(),
+        fingerprint: "sha256:abc".to_string(),
+    }
+}
+
+fn make_run() -> RunOutput {
+    RunOutput {
+        exit_code: 1,
+        stdout: String::new(),
+        stderr: String::new(),
+        duration_ms: 42,
+        per_witness: Vec::new(),
+    }
+}
+
+fn results() -> Vec<WitnessResult> {
+    vec![
+        WitnessResult { name: "h1".to_string(), status: Status::Pass, detail: None, duration_ms: None },
+        WitnessResult { name: "h2".to_string(), status: Status::Fail, detail: None, duration_ms: None },
+        WitnessResult { name: "s1".to_string(), status: Status::Pass, detail: None, duration_ms: None },
+    ]
+}
+
+#[test]
+fn test_build_report_from_synthetic_inputs() {
+    let spec = make_spec();
+    let bundle = make_bundle();
+    let run = make_run();
+    let report = build(Path::new("test.assay"), &spec, &bundle, &run, results());
+
+    assert_eq!(report.summary.total, 3);
+    assert_eq!(report.summary.passed, 2);
+    assert_eq!(report.summary.failed, 1);
+    assert_eq!(report.summary.hard_total, 2);
+    assert_eq!(report.summary.hard_passed, 1);
+    assert_eq!(report.summary.soft_total, 1);
+    assert_eq!(report.summary.soft_passed, 1);
+    assert!(!report.summary.satisfied, "h2 failed, so not satisfied");
+    assert_eq!(report.summary.objective, 1.0);
+    assert_eq!(report.summary.errored, 0);
+
+    assert_eq!(report.spec.name, "test");
+    assert_eq!(report.spec.runner, "rust");
+    assert!(report.spec.fingerprint.starts_with("sha256:"));
+
+    assert_eq!(report.bundle.file_count, 1);
+    assert!(report.bundle.fingerprint.starts_with("sha256:"));
+
+    assert!(report.report_fingerprint.starts_with("sha256:"));
+}
+
+#[test]
+fn test_spec_fingerprint_is_deterministic() {
+    let s1 = make_spec();
+    let s2 = make_spec();
+    assert_eq!(s1.fingerprint(), s2.fingerprint());
+    assert!(s1.fingerprint().starts_with("sha256:"));
+}
+
+#[test]
+fn test_satisfied_when_all_hard_pass() {
+    let spec = make_spec();
+    let bundle = make_bundle();
+    let run = make_run();
+    let all_pass = vec![
+        WitnessResult { name: "h1".to_string(), status: Status::Pass, detail: None, duration_ms: None },
+        WitnessResult { name: "h2".to_string(), status: Status::Pass, detail: None, duration_ms: None },
+        WitnessResult { name: "s1".to_string(), status: Status::Pass, detail: None, duration_ms: None },
+    ];
+    let report = build(Path::new("test.assay"), &spec, &bundle, &run, all_pass);
+    assert!(report.summary.satisfied);
+}
+</file>
+
+<file path="tests/report_fingerprint.rs">
+use assay::report::Report;
+
+#[test]
+fn test_w11_report_fingerprint_deterministic() {
+    let r = Report::empty_for_test("specfp", "bundfp");
+    let s1 = r.canonical_json();
+    let s2 = r.canonical_json();
+    assert_eq!(s1, s2);
+}
+
+#[test]
+fn test_w12_report_canonical_sorts_keys() {
+    let r = Report::empty_for_test("s", "b");
+    let j = r.canonical_json();
+    let pos_a = j.find("assay_version").expect("missing assay_version");
+    let pos_b = j.find("\"bundle\"").expect("missing bundle");
+    let pos_s = j.find("\"spec\"").expect("missing spec");
+    assert!(pos_a < pos_b, "assay_version must precede bundle");
+    assert!(pos_b < pos_s, "bundle must precede spec");
+}
+
+#[test]
+fn test_compute_fingerprint_deterministic() {
+    let r = Report::empty_for_test("s", "b");
+    let f1 = r.compute_fingerprint();
+    let f2 = r.compute_fingerprint();
+    assert_eq!(f1, f2);
+    assert!(f1.starts_with("sha256:"));
+    assert_eq!(f1.len(), "sha256:".len() + 64);
+}
+
+#[test]
+fn test_canonical_json_excludes_fingerprint_field() {
+    let r = Report::empty_for_test("s", "b");
+    let j = r.canonical_json();
+    assert!(
+        !j.contains("report_fingerprint"),
+        "canonical_json must exclude report_fingerprint"
+    );
+}
+</file>
+
+<file path="tests/rust_runner.rs">
+use assay::bundle::Bundle;
+use assay::runner::RustRunner;
+use assay::runner::Runner;
+use assay::spec::Spec;
+use assay::witness::{Kind, Status, Witness};
+use std::collections::BTreeMap;
+use tempfile::TempDir;
+
+fn spec_with(target: &str, witnesses: Vec<Witness>) -> Spec {
+    Spec {
+        name: "test".to_string(),
+        targets: vec![target.to_string()],
+        runner: "rust".to_string(),
+        runner_args: Vec::new(),
+        lang: "rust".to_string(),
+        fixtures: Vec::new(),
+        witnesses,
+        objectives: Vec::new(),
+    }
+}
+
+fn bundle_with(files: &[(&str, &str)]) -> Bundle {
+    let mut map = BTreeMap::new();
+    for (path, content) in files {
+        map.insert(path.to_string(), content.to_string());
+    }
+    Bundle {
+        files: map,
+        metadata: BTreeMap::new(),
+        fingerprint: "sha256:test".to_string(),
+    }
+}
+
+fn hard_witness(name: &str, body: &str) -> Witness {
+    Witness {
+        name: name.to_string(),
+        kind: Kind::Hard,
+        body: body.to_string(),
+    }
+}
+
+#[test]
+fn test_rust_runner_passing_witness() {
+    let stub = "pub fn add(a: i32, b: i32) -> i32 { a + b }\n";
+    let spec = spec_with(
+        "src/lib.rs",
+        vec![hard_witness("adds two numbers", "add(2, 3) == 5")],
+    );
+    let bundle = bundle_with(&[("src/lib.rs", stub)]);
+
+    let tmp = TempDir::new().unwrap();
+    let runner = RustRunner::new();
+    runner.prepare(tmp.path(), &spec, &bundle, &spec.witnesses).unwrap();
+
+    let out = runner.invoke(tmp.path(), &[]).unwrap();
+    let results = runner.parse(&out, &spec.witnesses);
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].status, Status::Pass);
+    assert_eq!(results[0].name, "adds two numbers");
+}
+
+#[test]
+fn test_rust_runner_failing_witness() {
+    let stub = "pub fn add(a: i32, b: i32) -> i32 { a - b }\n";
+    let spec = spec_with(
+        "src/lib.rs",
+        vec![hard_witness("adds two numbers", "add(2, 3) == 5")],
+    );
+    let bundle = bundle_with(&[("src/lib.rs", stub)]);
+
+    let tmp = TempDir::new().unwrap();
+    let runner = RustRunner::new();
+    runner.prepare(tmp.path(), &spec, &bundle, &spec.witnesses).unwrap();
+
+    let out = runner.invoke(tmp.path(), &[]).unwrap();
+    let results = runner.parse(&out, &spec.witnesses);
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].status, Status::Fail);
+}
+
+#[test]
+fn test_rust_runner_multiple_witnesses() {
+    let stub = "pub fn inc(x: i32) -> i32 { x + 1 }\npub fn dec(x: i32) -> i32 { x - 1 }\n";
+    let spec = spec_with(
+        "src/lib.rs",
+        vec![
+            hard_witness("inc works", "inc(5) == 6"),
+            hard_witness("dec works", "dec(5) == 4"),
+            hard_witness("inc and dec cancel", "inc(dec(10)) == 10"),
+        ],
+    );
+    let bundle = bundle_with(&[("src/lib.rs", stub)]);
+
+    let tmp = TempDir::new().unwrap();
+    let runner = RustRunner::new();
+    runner.prepare(tmp.path(), &spec, &bundle, &spec.witnesses).unwrap();
+
+    let out = runner.invoke(tmp.path(), &[]).unwrap();
+    let results = runner.parse(&out, &spec.witnesses);
+
+    assert_eq!(results.len(), 3);
+    for r in &results {
+        assert_eq!(r.status, Status::Pass, "witness '{}' should pass", r.name);
+    }
+}
+
+#[test]
+fn test_rust_runner_missing_target_errors() {
+    let spec = spec_with("src/lib.rs", vec![hard_witness("x", "true")]);
+    let bundle = bundle_with(&[("src/other.rs", "pub fn f() {}\n")]);
+
+    let tmp = TempDir::new().unwrap();
+    let runner = RustRunner::new();
+    let res = runner.prepare(tmp.path(), &spec, &bundle, &spec.witnesses);
+    assert!(res.is_err());
+}
+</file>
+
+<file path="tests/spec_parser.rs">
+use assay::spec::parser::parse_file;
+use assay::witness::Kind;
+use assay::spec::ObjectiveKind;
+use std::io::Write;
+use tempfile::NamedTempFile;
+
+fn parse_str(content: &str) -> anyhow::Result<assay::spec::Spec> {
+    let mut file = NamedTempFile::new()?;
+    write!(file, "{}", content)?;
+    parse_file(file.path())
+}
+
+#[test]
+fn test_w3_minimal_valid_spec() {
+    let content = r#"
+spec "min"
+target "src/lib.rs"
+runner rust
+lang rust
+
+witness "w" hard {
+    true
+}
+"#;
+    let spec = parse_str(content).unwrap();
+    assert_eq!(spec.name, "min");
+    assert_eq!(spec.targets, vec!["src/lib.rs"]);
+    assert_eq!(spec.runner, "rust");
+    assert!(spec.runner_args.is_empty());
+    assert_eq!(spec.lang, "rust");
+    assert!(spec.fixtures.is_empty());
+    assert_eq!(spec.witnesses.len(), 1);
+    assert_eq!(spec.witnesses[0].name, "w");
+    assert_eq!(spec.witnesses[0].kind, Kind::Hard);
+    assert_eq!(spec.witnesses[0].body, "true");
+}
+
+#[test]
+fn test_w4_missing_target() {
+    let content = r#"
+spec "bad"
+runner rust
+lang rust
+witness "w" hard { true }
+"#;
+    let res = parse_str(content);
+    assert!(res.is_err());
+}
+
+#[test]
+fn test_w5_comments() {
+    let content = r#"
+# this is a comment
+
+spec "c"
+# another comment
+
+target "src/lib.rs"
+runner rust
+lang rust
+
+# comment inside
+witness "w" hard {
+    # this is a rust comment inside the witness
+    true
+}
+"#;
+    let spec = parse_str(content).unwrap();
+    assert_eq!(spec.name, "c");
+    assert_eq!(spec.witnesses.len(), 1);
+    assert_eq!(spec.witnesses[0].name, "w");
+    assert_eq!(spec.witnesses[0].body, "# this is a rust comment inside the witness\ntrue");
+}
+
+#[test]
+fn test_w6_multiline_body() {
+    let content = r#"
+spec "m"
+target "src/lib.rs"
+runner rust
+lang rust
+witness "m" hard {
+    let x = 1;
+    let y = 2;
+    x + y == 3
+}
+"#;
+    let spec = parse_str(content).unwrap();
+    assert_eq!(spec.witnesses[0].body, "let x = 1;\nlet y = 2;\nx + y == 3");
+}
+
+#[test]
+fn test_w7_soft_weight() {
+    let content = r#"
+spec "s"
+target "src/lib.rs"
+runner rust
+lang rust
+witness "s" soft weight 0.5 {
+    true
+}
+"#;
+    let spec = parse_str(content).unwrap();
+    assert_eq!(spec.witnesses[0].kind, Kind::Soft(0.5));
+}
+
+#[test]
+fn test_objectives() {
+    let content = r#"
+spec "obj"
+target "src/lib.rs"
+runner rust
+lang rust
+objective {
+    minimises "lines_of_code" target 200
+    maximises "test_coverage"
+}
+"#;
+    let spec = parse_str(content).unwrap();
+    assert_eq!(spec.objectives.len(), 2);
+    assert_eq!(spec.objectives[0].kind, ObjectiveKind::Minimise);
+    assert_eq!(spec.objectives[0].name, "lines_of_code");
+    assert_eq!(spec.objectives[0].target, Some(200.0));
+    assert_eq!(spec.objectives[1].kind, ObjectiveKind::Maximise);
+    assert_eq!(spec.objectives[1].name, "test_coverage");
+    assert_eq!(spec.objectives[1].target, None);
+}
+</file>
+
+<file path=".env.example">
+# GEMINI_API_KEY: Required for Gemini AI API calls.
+# AI Studio automatically injects this at runtime from user secrets.
+# Users configure this via the Secrets panel in the AI Studio UI.
+GEMINI_API_KEY="MY_GEMINI_API_KEY"
+
+# APP_URL: The URL where this applet is hosted.
+# AI Studio automatically injects this at runtime with the Cloud Run service URL.
+# Used for self-referential links, OAuth callbacks, and API endpoints.
+APP_URL="MY_APP_URL"
+</file>
+
+<file path=".gitignore">
+node_modules/
+build/
+dist/
+coverage/
+.DS_Store
+*.log
+.env*
+!.env.example
+</file>
+
+<file path="assay.assay">
+spec "assay"
+
+target "src/lib.rs"
+runner rust
+lang rust
+
+witness "minimal spec parses" hard {
+    let s = "spec \"x\"\ntarget \"a\"\nrunner rust\nlang rust\nwitness \"w\" hard {\ntrue\n}\n";
+    let dir = std::env::temp_dir().join("assay_self_w1");
+    std::fs::create_dir_all(&dir).unwrap();
+    let p = dir.join("x.assay");
+    std::fs::write(&p, s).unwrap();
+    spec::parse_file(&p).is_ok()
+}
+
+witness "missing target errors" hard {
+    let s = "spec \"x\"\nrunner rust\nlang rust\n";
+    let dir = std::env::temp_dir().join("assay_self_w2");
+    std::fs::create_dir_all(&dir).unwrap();
+    let p = dir.join("x.assay");
+    std::fs::write(&p, s).unwrap();
+    spec::parse_file(&p).is_err()
+}
+
+witness "bundle parser reads repomix xml" hard {
+    let s = "<file_summary/>\n<files>\n<file path=\"a.rs\"><![CDATA[hello]]></file>\n</files>";
+    let dir = std::env::temp_dir().join("assay_self_w3");
+    std::fs::create_dir_all(&dir).unwrap();
+    let p = dir.join("b.xml");
+    std::fs::write(&p, s).unwrap();
+    bundle::parse_file(&p)
+        .ok()
+        .and_then(|b| b.files.get("a.rs").cloned())
+        .map(|c| c == "hello")
+        .unwrap_or(false)
+}
+
+witness "bundle fingerprint deterministic" hard {
+    let s = "<file_summary/>\n<files>\n<file path=\"a.rs\"><![CDATA[hello]]></file>\n</files>";
+    let dir = std::env::temp_dir().join("assay_self_w4");
+    std::fs::create_dir_all(&dir).unwrap();
+    let p = dir.join("b.xml");
+    std::fs::write(&p, s).unwrap();
+    let b1 = bundle::parse_file(&p).unwrap();
+    let b2 = bundle::parse_file(&p).unwrap();
+    b1.fingerprint == b2.fingerprint && b1.fingerprint.starts_with("sha256:")
+}
+
+witness "report canonical excludes fingerprint" hard {
+    let r = report::Report::empty_for_test("s", "b");
+    let j = r.canonical_json();
+    !j.contains("report_fingerprint")
+}
+
+witness "report fingerprint deterministic" hard {
+    let r = report::Report::empty_for_test("s", "b");
+    r.compute_fingerprint() == r.compute_fingerprint()
+}
+</file>
+
+<file path="Cargo.toml">
+[package]
+name = "assay"
+version = "2.0.0"
+edition = "2021"
+description = "A Universal Verifier and Oracle Protocol for AI-Assisted Software Development"
+license = "MIT OR Apache-2.0"
+
+[dependencies]
+anyhow = "1.0"
+clap = { version = "4.4", features = ["derive"] }
+reqwest = { version = "0.11", features = ["json", "blocking"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+toml = "0.8"
+sha2 = "0.10"
+tempfile = "3.8"
+</file>
+
+<file path="index.html">
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>My Google AI Studio App</title>
+    <meta name="description" content="An application built with Google AI Studio." />
+    <meta property="og:title" content="My Google AI Studio App" />
+    <meta property="og:description" content="An application built with Google AI Studio." />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+</file>
+
+<file path="LICENSE-APACHE">
+Apache 2.0 License
+</file>
+
+<file path="LICENSE-MIT">
+MIT License
+</file>
+
+<file path="metadata.json">
+{
+  "name": "",
+  "description": "",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
+</file>
+
+<file path="package.json">
+{
+  "name": "react-example",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --port=3000 --host=0.0.0.0",
+    "build": "vite build",
+    "preview": "vite preview",
+    "clean": "rm -rf dist server.js",
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@google/genai": "^2.4.0",
+    "@tailwindcss/vite": "^4.1.14",
+    "@vitejs/plugin-react": "^5.0.4",
+    "lucide-react": "^0.546.0",
+    "react": "^19.0.1",
+    "react-dom": "^19.0.1",
+    "vite": "^6.2.3",
+    "express": "^4.21.2",
+    "dotenv": "^17.2.3",
+    "motion": "^12.23.24"
+  },
+  "devDependencies": {
+    "@types/node": "^22.14.0",
+    "autoprefixer": "^10.4.21",
+    "esbuild": "^0.25.0",
+    "tailwindcss": "^4.1.14",
+    "tsx": "^4.21.0",
+    "typescript": "~5.8.2",
+    "vite": "^6.2.3",
+    "@types/express": "^4.17.21"
+  }
+}
+</file>
+
+<file path="README.md">
+# Assay
+
+**The verifier for AI-written code.**
+
+Assay turns any source repository into a verifiable artifact. You write a spec. Assay executes the spec's witnesses against the code. It emits a deterministic report. A frontier model reads the report and issues a directive. An implementer applies the directive. Loop until satisfied.
+
+That is the entire system.
+
+```
+spec + bundle  ──▶  Assay  ──▶  report  ──▶  Oracle  ──▶  directive  ──▶  Implementer
+                     ▲                                                          │
+                     └──────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Why
+
+LLMs write code that looks right. It compiles. It passes the tests the model also wrote. It ships. Then it fails on the case nobody checked.
+
+The problem is not that AI writes bad code. It is that AI writes *plausible* code, and plausibility is not correctness. There is no machine in the loop that decides whether the code actually satisfies what you asked for.
+
+Assay is that machine.
+
+- The **spec** is written by a human. It is a plain text file of assertions.
+- The **report** is written by Assay. It is deterministic and inspectable.
+- The **directive** is written by a frontier model that cannot see the code, only the report.
+- The **implementation** is written by an AI that cannot hide failure, because the compiler is the arbiter.
+
+The unit of progress is a verified witness. Not a merged PR. Not a code review. A claim that provably holds.
+
+---
+
+## Quickstart
+
+Install Rust 1.75 or later, then:
+
+```bash
+cargo install --git https://github.com/YOUR-HANDLE/assay
+```
+
+Write a spec. Here is the smallest possible one:
+
+```
+spec "greet"
+
+target "src/lib.rs"
+runner rust
+lang rust
+
+witness "greets by name" hard {
+    greet("world") == "hello, world"
+}
+```
+
+Write a stub in `src/lib.rs`:
+
+```rust
+pub fn greet(_name: &str) -> String {
+    unimplemented!()
+}
+```
+
+Pack the repository into a bundle:
+
+```bash
+npx repomix
+```
+
+Verify:
+
+```bash
+assay verify greet.assay --bundle bundle.xml
+```
+
+Exit code is 1 (the stub is not implemented). Run the oracle:
+
+```bash
+export ANTHROPIC_API_KEY=sk-ant-...
+assay oracle greet.assay --report report.json
+```
+
+The oracle emits a directive. Paste the `intent` field into your implementer's prompt. The implementer writes code. Re-bundle. Re-verify. Repeat.
+
+When the report says `"satisfied": true`, you are done.
+
+---
+
+## The Spec Format
+
+Assay specs are line-oriented and human-readable. A spec has directives, witnesses, fixtures, and objectives.
+
+```
+spec "duration"
+
+target "src/lib.rs"
+runner rust
+lang rust
+
+fixture VALID {
+    const VALID: &[(&str, u64)] = &[
+        ("1s", 1),
+        ("30s", 30),
+        ("1m", 60),
+        ("2m30s", 150),
+    ];
+}
+
+witness "empty input rejects" hard {
+    parse_duration("").is_none()
+}
+
+witness "single second parses" hard {
+    parse_duration("1s") == Ok(1)
+}
+
+witness "compound minutes and seconds" hard {
+    parse_duration("2m30s") == Ok(150)
+}
+
+witness "all valid inputs parse" hard {
+    VALID.iter().all(|(s, n)| parse_duration(s) == Ok(*n))
+}
+
+witness "no panics on garbage" soft weight 1.0 {
+    ["", "-", "abc"].iter().all(|s| std::panic::catch_unwind(|| parse_duration(s)).is_ok())
+}
+
+objective {
+    minimises "lines_of_code" target 200
+}
+```
+
+A **hard witness** must pass for the spec to be satisfied.
+A **soft witness** contributes to the objective score but does not gate satisfaction.
+A **fixture** is shared code injected before every witness.
+An **objective** declares soft goals and measured targets.
+
+Full grammar and semantics are in [SPEC.md](./SPEC.md).
+
+---
+
+## Commands
+
+| Command | Purpose |
+|---|---|
+| `assay verify <spec> --bundle <path>` | Verify a bundle. Emit a report. Exit 0 or 1. |
+| `assay report <spec> --bundle <path>` | Same as verify, but always exit 0. |
+| `assay diff <report-a> <report-b>` | Compare two reports. |
+| `assay oracle <spec> --report <path>` | Invoke the oracle. Emit a directive. |
+| `assay loop <spec>` | Run the full loop. |
+| `assay init [<dir>]` | Scaffold a new project. |
+| `assay fmt <spec>` | Canonicalize a spec. |
+| `assay schema` | Print JSON schemas. |
+| `assay version` | Print version. |
+
+Exit codes:
+
+| Code | Meaning |
+|---|---|
+| 0 | All hard witnesses pass. |
+| 1 | One or more hard witnesses failed. |
+| 2 | Spec parse error. |
+| 3 | Bundle parse error. |
+| 4 | I/O error. |
+| 5 | Runner failed to invoke. |
+| 6 | Oracle returned an invalid directive. |
+| 7 | Timeout. |
+| 64 | Invalid CLI usage. |
+
+---
+
+## How It Works
+
+Assay has three jobs and nothing else.
+
+**1. Parse.** It reads a spec and a bundle. A bundle is a single file containing an entire repository, produced by [Repomix](https://github.com/yamadashy/repomix) or a similar packer. Assay understands the Repomix format natively.
+
+**2. Execute.** It extracts the spec's target files from the bundle into a temporary directory. It generates a witness module in the target language. It injects the module into the temporary copy. It invokes the language's own test runner. It captures the output.
+
+**3. Report.** It builds a JSON document listing every witness, its status, the objective score, and a fingerprint over the whole thing. Two runs over the same spec and bundle produce byte-identical reports.
+
+The oracle is a separate step. It reads the report, calls a frontier model, and writes a directive. It never sees the code. It cannot be fooled.
+
+---
+
+## Status
+
+Assay is under active construction. It is being built using its own protocol, which is a bootstrap paradox: to verify Assay, you need Assay.
+
+Current state:
+
+- [x] Crate compiles. CLI recognizes all nine subcommands.
+- [x] Canonical types for `Spec`, `Witness`, `Bundle`, `Report`, `Directive`.
+- [x] Spec parser implemented.
+- [ ] Spec parser tested (the witness suite is next).
+- [ ] Bundle parser.
+- [ ] Report fingerprinting.
+- [ ] Rust runner.
+- [ ] Oracle client.
+- [ ] Self-hosting: Assay verifying Assay.
+
+Until the loop is self-hosted, verification is performed by hand. See [docs/Day-Zero.md](./docs/Day-Zero.md) for the manual protocol (coming soon).
+
+The roadmap is in [SPEC.md §16](./SPEC.md).
+
+---
+
+## Design Principles
+
+**Verification is deterministic.** No wall-clock time in reports. No environment-dependent behavior. All maps serialized in key order. All floats rounded to a fixed precision. Two runs, two identical outputs.
+
+**Verification is language-agnostic.** Assay does not parse source code. It hands witness bodies to the language's own test runner. Rust, Python, TypeScript, Go, shell. Whatever the target uses.
+
+**Verification is complete over the spec.** If a witness is in the spec, it is checked. There is no way to make a witness disappear from the report without removing it from the spec.
+
+**The oracle is stateless.** It does not maintain its own history. The report contains everything it needs. Its output is a directive; the directive is written to disk; the next invocation reads it.
+
+**The spec is the contract.** The human writes the spec. The implementer writes the code. The two never share a file. The only file they both reference is the bundle, which is generated, not authored.
+
+---
+
+## Security
+
+Assay trusts the spec, the runner configuration, and the host operating system. It does not trust the bundle, the oracle, or the implementer.
+
+- The oracle's output is validated against a JSON schema before being written to disk.
+- API keys are read from the environment only. They are never written to disk, never logged, and never included in any output.
+- Assay writes only to the paths specified by `--out`, the cache directory, and a temporary directory that is deleted on exit.
+- Bundle paths containing `..` are rejected.
+- Runners execute with the user's permissions. Users running untrusted bundles should invoke Assay inside a container.
+
+Details in [SPEC.md §12](./SPEC.md).
+
+---
+
+## What Assay Is Not
+
+Assay is not a build system. It is not a package manager. It is not a linter. It is not a formatter. It is not a code reviewer. It is not a test framework. It is not a scheduler.
+
+It is a verifier. It takes a spec and a bundle, executes the spec's witnesses against the bundle, and reports the result deterministically. Everything else is downstream.
+
+---
+
+## Contributing
+
+Assay is small on purpose. Before adding anything, ask whether the addition supports this sentence:
+
+> Given a spec and a bundle, execute the spec's witnesses against the bundle, and report the result deterministically.
+
+If it does not, it belongs in a different program.
+
+Contributions welcome. Open an issue before opening a PR on anything larger than a typo.
+
+---
+
+## License
+
+Dual-licensed under either of
+
+- Apache License, Version 2.0 ([LICENSE-APACHE](./LICENSE-APACHE))
+- MIT License ([LICENSE-MIT](./LICENSE-MIT))
+
+at your option.
+
+Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in this project shall be dual-licensed as above, without any additional terms or conditions.
+
+---
+
+## Acknowledgments
+
+Inspired by the observation that verification only works when the verifier is simple enough to trust.
+
+Assay is deliberately small. It is small enough that one person can read all of it, understand it, and trust it. That is the point.
+
+The only way to build software that outlives you is to stop writing it.
+</file>
+
+<file path="SPEC.md">
+# ASSAY
+## A Universal Verifier and Oracle Protocol for AI-Assisted Software Development
+
+**Version:** 2.0 (Specification)
+**License:** MIT OR Apache-2.0
+**Status:** Normative
+
+---
+
+## 0. Preface
+
+Assay is a program that turns source code into a verifiable mathematical artifact.
+
+It accepts two inputs:
+
+1. A **spec** — a text file listing witnesses (claims about behavior) that the code must satisfy.
+2. A **bundle** — a packed representation of an entire repository (typically produced by Repomix).
+
+It produces one output:
+
+3. A **report** — a deterministic, structured summary of which witnesses pass, which fail, and by how much.
+
+Assay is written in Rust. It shells out to whatever test runner the target language uses. It does not assume the target is Rust, or TypeScript, or Python. It assumes only that the target has some way to run a check and return a boolean.
+
+Assay is intended to sit in the middle of an AI-assisted development loop:
+
+```
+          ┌───────────────────────┐
+          │  AI Studio Implementer│
+          │  (writes code)        │
+          └───────────┬───────────┘
+                      │ commits
+                      ▼
+          ┌───────────────────────┐
+          │  GitHub Repository    │
+          └───────────┬───────────┘
+                      │ pull
+                      ▼
+          ┌───────────────────────┐
+          │  Repomix              │
+          │  (packs to one file)  │
+          └───────────┬───────────┘
+                      │ bundle
+                      ▼
+          ┌───────────────────────┐      ┌──────────────────┐
+          │  ASSAY                │─────▶│  report          │
+          │  (verifies)           │      └────────┬─────────┘
+          └───────────────────────┘               │
+                                                  ▼
+                                        ┌──────────────────┐
+                                        │  Oracle          │
+                                        │  (frontier model)│
+                                        └────────┬─────────┘
+                                                  │ directive
+                                                  ▼
+                                        back to Implementer
+```
+
+The loop has three agents:
+
+- **Implementer** — writes code. Typically an AI Studio agent.
+- **Assay** — verifies code against the spec. Deterministic, fast, local.
+- **Oracle** — reads Assay's report and issues the next directive. A frontier LLM.
+
+The user (a human) writes the spec and observes the loop. That is the entire system.
+
+This document is self-contained. It assumes no knowledge of any prior system.
+
+---
+
+## 1. Design Principles
+
+### 1.1 Verification is deterministic
+
+Two runs of Assay over the same spec and same bundle produce identical reports. This is enforced by:
+
+- No wall-clock time in the report (only in logs).
+- No environment-dependent behavior (locale, timezone, PATH) in report content.
+- All maps serialized in key-sorted order.
+- All floating-point values rounded to a fixed precision (six decimal places).
+- A fingerprint over `{spec_hash, bundle_hash, report_body}` included in every report.
+
+### 1.2 Verification is language-agnostic
+
+Assay does not parse source code. It does not know what language the target is in. It reads a spec, extracts witness definitions written in the target's own language, injects them into a temporary file or runner configuration, and invokes the runner. The runner determines pass/fail.
+
+### 1.3 Verification is complete over the spec
+
+If a witness is in the spec, it is checked. There is no way to make a witness disappear from the report without removing it from the spec. Missing witnesses are failures.
+
+### 1.4 The oracle is stateless
+
+The oracle does not maintain its own history. Assay's report contains everything the oracle needs: current state, delta from the previous state, and the previous directive. The oracle's output is a directive; the directive is written to disk; the next invocation of the oracle reads it.
+
+### 1.5 The spec is the contract
+
+The user writes the spec. The implementer writes the code. The two never share a file. The only file they both reference is the bundle, which is generated, not authored.
+
+---
+
+## 2. Concepts
+
+### 2.1 Spec
+
+A **spec** is a text file. It declares:
+
+- A **target** — which files in the bundle the spec applies to.
+- A **runner** — the command that performs the check.
+- A set of **witnesses** — claims that must be true.
+- A set of **objectives** — soft goals that shape refinement.
+- A set of **fixtures** — shared data used by witnesses.
+
+A witness is either a **hard** witness (must pass) or a **soft** witness (contributes to the objective score).
+
+### 2.2 Bundle
+
+A **bundle** is a single file containing the whole repository, produced by a packer such as Repomix. It has:
+
+- A header with metadata.
+- A directory listing.
+- Each file's content, tagged with its path.
+
+Assay understands the Repomix format natively. Other packers are supported via adapters.
+
+### 2.3 Witness
+
+A **witness** is a claim about the bundle. Formally:
+
+```
+witness w = (name, language, expression, expectation)
+```
+
+Where:
+
+- `name` — a unique identifier.
+- `language` — the language the expression is written in (`rust`, `python`, `typescript`, …).
+- `expression` — a snippet of code in that language.
+- `expectation` — `pass` if the expression must evaluate to true, `fail` if it must evaluate to false.
+
+Assay does not interpret the expression. It hands it to the runner.
+
+### 2.4 Runner
+
+A **runner** is an external program Assay invokes to execute witnesses. Every runner implements the same contract:
+
+- Accepts a set of witnesses on stdin (or via temp file).
+- Returns exit code 0 if all hard witnesses pass, non-zero otherwise.
+- Emits a machine-readable summary to stdout.
+
+Assay ships with runners for Rust, Python, Node.js, and a generic shell runner.
+
+### 2.5 Objective
+
+An **objective** is a soft goal. Witnesses marked as `soft` contribute to it. The objective value is a real number in `[0, 1]`:
+
+```
+objective = Σ (weightᵢ × passedᵢ) / Σ weightᵢ
+```
+
+Where `passedᵢ` is 1 if the soft witness passes, 0 otherwise.
+
+A spec may also declare **measured objectives** — values emitted by the runner as numbers (e.g., "build time in milliseconds"), against which a target and a direction are specified.
+
+### 2.6 Report
+
+A **report** is Assay's output. It is a JSON document. It contains:
+
+- The spec's fingerprint.
+- The bundle's fingerprint.
+- For each witness: name, status, and on failure, the runner's diagnostic.
+- The objective value, if any.
+- The delta from the previous report, if a previous report is available.
+- The previous directive, echoed back.
+- A signed fingerprint over the whole report.
+
+### 2.7 Directive
+
+A **directive** is the oracle's output. It is a JSON document. It contains:
+
+- A target: which file(s) the implementer should modify.
+- An intent: a one-sentence description of what the change should accomplish.
+- Constraints: witnesses that must continue to pass.
+- A rationale: why this directive is the right next step.
+
+### 2.8 Loop
+
+A **loop** is one full cycle:
+
+```
+directive → implementer → bundle → assay → report → oracle → directive
+```
+
+Assay does not manage the loop. It produces reports. The oracle produces directives. The implementer consumes directives and produces bundles. The loop is the user's to orchestrate, though Assay provides a `assay loop` convenience command.
+
+---
+
+## 3. Architecture
+
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│                            ASSAY BINARY                              │
+│                                                                      │
+│  ┌─────────────┐    ┌──────────────┐    ┌──────────────┐             │
+│  │  bundle     │    │  spec        │    │  runner      │             │
+│  │  parser     │    │  parser      │    │  dispatcher  │             │
+│  └──────┬──────┘    └──────┬───────┘    └──────┬───────┘             │
+│         │                  │                   │                     │
+│         └──────────┬───────┴───────────┬───────┘                     │
+│                    ▼                   ▼                             │
+│              ┌──────────────┐    ┌──────────────┐                    │
+│              │  verifier    │    │  reporter    │                    │
+│              │  (core)      │───▶│  (JSON out)  │                    │
+│              └──────────────┘    └──────────────┘                    │
+│                                                                      │
+│              ┌──────────────┐    ┌──────────────┐                    │
+│              │  oracle      │    │  loop        │                    │
+│              │  client      │    │  orchestrator│                    │
+│              └──────────────┘    └──────────────┘                    │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+Assay is a single Rust binary. It has no persistent state. All state lives in files the user can see: specs, bundles, reports, directives.
+
+---
+
+## 4. The Spec Format
+
+### 4.1 Syntax
+
+A spec is a plain-text file with the extension `.assay`. It is line-oriented. Leading whitespace is significant only inside witness bodies.
+
+```
+# Duration parser — verifies src/duration.rs
+
+spec "duration"
+
+target "src/duration.rs"
+runner rust
+runners_args ["cargo", "test", "--quiet", "--", "--nocapture"]
+
+lang rust
+
+fixture VALID {
+    const VALID: &[(&str, u64)] = &[
+        ("1s", 1),
+        ("30s", 30),
+        ("1m", 60),
+        ("2m30s", 150),
+    ];
+}
+
+witness "empty returns none" hard {
+    parse_duration("").is_none()
+}
+
+witness "compound minutes-seconds" hard {
+    parse_duration("2m30s") == Ok(150)
+}
+
+witness "all valid inputs parse" hard {
+    VALID.iter().all(|(s, n)| parse_duration(s) == Ok(*n))
+}
+
+witness "no panics on garbage" soft weight 0.5 {
+    ["", "-", "abc", "1h30"].iter().all(|s| std::panic::catch_unwind(|| parse_duration(s)).is_ok())
+}
+
+objective {
+    minimises "lines_of_code"
+    maximises "test_coverage"
+}
+```
+
+### 4.2 Directives
+
+| Directive | Meaning |
+|---|---|
+| `spec "name"` | Names the spec. Required. |
+| `target "path"` | The file(s) in the bundle this spec applies to. Glob patterns allowed. Required. |
+| `runner <name>` | The runner to use. Required. |
+| `runner_args [...]` | Extra arguments passed to the runner. Optional. |
+| `lang <name>` | The language of witness bodies. Required. |
+| `fixture NAME { ... }` | A named block of language-specific code injected before all witnesses. |
+| `witness "name" hard { ... }` | A witness that must pass. |
+| `witness "name" soft weight W { ... }` | A witness that contributes `W` to the objective. |
+| `objective { ... }` | Declares measured and named objectives. |
+
+### 4.3 Witness Bodies
+
+A witness body is a single language expression enclosed in braces. It may span multiple lines. It must be valid code in the language declared by `lang`.
+
+For Rust, it is a `bool` expression.
+
+For Python, it is an expression that evaluates to a truthy or falsy value.
+
+For TypeScript, it is an expression that evaluates to a `boolean`.
+
+The runner is responsible for interpreting the body in its language.
+
+### 4.4 Fixtures
+
+Fixtures let witnesses share setup code:
+
+```
+fixture PARSE_CASES {
+    const CASES: &[(&str, u64)] = &[
+        ("1s", 1),
+        ("30s", 30),
+        ("1m", 60),
+    ];
+}
+
+witness "all cases parse" hard {
+    CASES.iter().all(|(s, n)| parse_duration(s) == Ok(*n))
+}
+```
+
+Fixtures are concatenated in the order declared and injected at the top of the generated test module.
+
+### 4.5 Comments
+
+Lines whose first non-whitespace character is `#` are comments. Inline `#` inside a witness body is a language comment and is preserved.
+
+### 4.6 Full Formal Grammar
+
+```
+spec        ::= { line }
+
+line        ::= directive | witness | fixture | objective | comment | blank
+
+directive   ::= spec_decl | target_decl | runner_decl | runner_args_decl | lang_decl
+spec_decl   ::= "spec" ws string
+target_decl ::= "target" ws string
+runner_decl ::= "runner" ws ident
+runner_args_decl ::= "runner_args" ws "[" string_list "]"
+lang_decl   ::= "lang" ws ident
+
+witness     ::= "witness" ws string ws mode ws "{" nl body nl "}"
+mode        ::= "hard" | "soft" ws "weight" ws float
+
+fixture     ::= "fixture" ws ident ws "{" nl body nl "}"
+
+objective   ::= "objective" ws "{" nl { objective_line } "}"
+objective_line ::= "minimises" ws string | "maximises" ws string
+
+body        ::= { any_line }
+
+string      ::= '"' { any - '"' } '"'
+ident       ::= [a-zA-Z_][a-zA-Z0-9_-]*
+float       ::= [0-9]+ ("." [0-9]+)?
+ws          ::= " " { " " }
+```
+
+---
+
+## 5. Bundle Format
+
+### 5.1 Repomix Format
+
+Assay reads the Repomix XML format natively. A Repomix bundle is:
+
+```xml
+<file_summary>
+  ...metadata...
+</file_summary>
+
+<directory_structure>
+  src/
+    main.rs
+    lib.rs
+  ...
+</directory_structure>
+
+<files>
+  <file path="src/main.rs">
+    <![CDATA[
+    fn main() { ... }
+    ]]>
+  </file>
+  ...
+</files>
+```
+
+Assay parses this into an internal `Bundle` struct:
+
+```rust
+pub struct Bundle {
+    pub files: BTreeMap<String, String>,  // path → content
+    pub metadata: BTreeMap<String, String>,
+    pub fingerprint: String,              // SHA-256 of canonical serialization
+}
+```
+
+### 5.2 Bundle Fingerprint
+
+The fingerprint is computed as:
+
+```
+for path in sorted(files.keys()):
+    hash.update(path)
+    hash.update("\0")
+    hash.update(files[path])
+    hash.update("\0")
+fingerprint = hex(hash.finalize())
+```
+
+This makes the fingerprint independent of file ordering, metadata, and whitespace around files.
+
+### 5.3 Other Formats
+
+Assay's bundle parser is extensible. The following formats are supported out of the box:
+
+| Format | Detector |
+|---|---|
+| Repomix XML | Root element `<file_summary>` |
+| Repomix Markdown | First line contains `# Repository` |
+| Repomix JSON | Root object with `files` array |
+| GNU tarball | Magic bytes `\x1f\x8b` |
+| Directory | Argument is an existing directory |
+
+Adapters are registered in `src/bundle/`. Each adapter is a small function that takes raw bytes and returns a `Bundle`.
+
+---
+
+## 6. Verification Engine
+
+### 6.1 Sequence
+
+```
+1. Parse bundle.
+2. Parse spec.
+3. For each target file in the spec's glob:
+     a. Extract the file from the bundle.
+     b. Write it to a temporary directory, preserving path structure.
+4. Generate a witness module in the target language.
+5. Inject the witness module into the temporary copy of the target file.
+6. Write any extra files needed by the runner (e.g., Cargo.toml, package.json).
+7. Invoke the runner with the configured arguments.
+8. Capture stdout, stderr, and exit code.
+9. Parse the runner's output for per-witness status.
+10. Build the report.
+11. Delete the temporary directory.
+12. Emit the report.
+```
+
+### 6.2 Runners
+
+Assay ships with the following runners:
+
+| Runner | Language | Invocation |
+|---|---|---|
+| `rust` | Rust | `cargo test` |
+| `python` | Python | `pytest -q` or `python -m unittest` |
+| `node` | TS/JS | `npx vitest run` or `node --test` |
+| `go` | Go | `go test ./...` |
+| `shell` | Any | The command named in `runner_args` |
+
+Each runner implements the trait:
+
+```rust
+pub trait Runner {
+    fn name(&self) -> &'static str;
+    fn prepare(
+        &self,
+        dir: &Path,
+        spec: &Spec,
+        bundle: &Bundle,
+        witnesses: &[Witness],
+    ) -> Result<()>;
+    fn invoke(&self, dir: &Path, args: &[String]) -> Result<RunOutput>;
+    fn parse(&self, output: &RunOutput, witnesses: &[Witness]) -> Vec<WitnessResult>;
+}
+```
+
+### 6.3 Runner Output Contract
+
+A runner's output is parsed into `RunOutput`:
+
+```rust
+pub struct RunOutput {
+    pub exit_code: i32,
+    pub stdout: String,
+    pub stderr: String,
+    pub duration_ms: u64,
+    pub per_witness: Vec<WitnessResult>,  // if the runner can extract them
+}
+
+pub struct WitnessResult {
+    pub name: String,
+    pub status: Status,          // Pass | Fail | Skip | Error
+    pub detail: Option<String>,  // stack trace, assertion message, etc.
+    pub duration_ms: Option<u64>,
+}
+```
+
+If the runner cannot extract per-witness results, the whole run is treated as one witness. Runners that can extract per-witness results do so and emit them in a standard format:
+
+```
+ASSAY_WITNESS_RESULT name=<name> status=<status> duration_ms=<ms> detail=<single-line detail>
+```
+
+Assay's Rust, Python, and Node runners emit this automatically by wrapping the test invocation.
+
+### 6.4 Timeouts
+
+Every runner is invoked with a timeout. Default: 300 seconds. Configurable in `.assay.toml`. On timeout, all witnesses in the run are marked `Error` with detail `"runner timeout"`.
+
+### 6.5 Caching
+
+Assay caches verification results by `(bundle_fingerprint, spec_fingerprint, runner_args)`. Cache lives in `.assay-cache/` at the working directory. Cache entries are invalidated when any component of the key changes.
+
+---
+
+## 7. Report Format
+
+### 7.1 Schema
+
+```json
+{
+  "assay_version": "2.0.0",
+  "spec": {
+    "name": "duration",
+    "path": "duration.assay",
+    "fingerprint": "sha256:...",
+    "targets": ["src/duration.rs"],
+    "runner": "rust",
+    "lang": "rust"
+  },
+  "bundle": {
+    "fingerprint": "sha256:...",
+    "file_count": 42,
+    "byte_count": 18342
+  },
+  "run": {
+    "timestamp_ms": 1715000000000,
+    "duration_ms": 1247,
+    "exit_code": 1,
+    "cached": false
+  },
+  "witnesses": [
+    {
+      "name": "empty returns none",
+      "kind": "hard",
+      "status": "pass",
+      "duration_ms": 3
+    },
+    {
+      "name": "compound minutes-seconds",
+      "kind": "hard",
+      "status": "fail",
+      "duration_ms": 2,
+      "detail": "assertion failed: parse_duration(\"2m30s\") == Ok(150)\n  left: Ok(150)\n  right: Ok(150)"
+    }
+  ],
+  "summary": {
+    "total": 4,
+    "passed": 3,
+    "failed": 1,
+    "errored": 0,
+    "skipped": 0,
+    "hard_total": 3,
+    "hard_passed": 2,
+    "soft_total": 1,
+    "soft_passed": 1,
+    "satisfied": false,
+    "objective": 0.75,
+    "objective_breakdown": {
+      "no panics on garbage": 0.5
+    }
+  },
+  "delta": {
+    "from_fingerprint": "sha256:...",
+    "witnesses_changed": [
+      {"name": "compound minutes-seconds", "from": "pass", "to": "fail"}
+    ],
+    "objective_delta": -0.25
+  },
+  "previous_directive": {
+    "path": "directives/latest.json",
+    "id": "d-2026-04-03-001",
+    "target": "src/duration.rs",
+    "intent": "Add support for compound minute-second inputs"
+  },
+  "report_fingerprint": "sha256:..."
+}
+```
+
+### 7.2 Fields
+
+| Field | Meaning |
+|---|---|
+| `spec.fingerprint` | SHA-256 of the spec file's canonical serialization |
+| `bundle.fingerprint` | SHA-256 of the bundle (§5.2) |
+| `witnesses[].status` | One of `pass`, `fail`, `skip`, `error` |
+| `summary.satisfied` | `true` iff `hard_passed == hard_total` and `errored == 0` |
+| `summary.objective` | Soft witness score, `[0, 1]` |
+| `delta` | Present only if a previous report exists; computed by diffing |
+| `previous_directive` | Echoed from disk so the oracle sees continuity |
+| `report_fingerprint` | SHA-256 over all fields except itself |
+
+### 7.3 Report Fingerprint
+
+Computed as:
+
+```
+body = canonical_json(report without report_fingerprint)
+hash = sha256(body)
+report_fingerprint = "sha256:" + hex(hash)
+```
+
+Canonical JSON: keys sorted, no insignificant whitespace, floats formatted to six decimal places.
+
+### 7.4 Determinism Guarantee
+
+Two invocations of Assay with the same spec and bundle produce byte-identical reports, except for:
+
+- `run.timestamp_ms` and `run.duration_ms` (nondeterministic by nature).
+- `delta` (depends on previous report).
+
+To obtain a fully deterministic report, pass `--frozen` to strip these fields. Frozen reports are used for CI caching.
+
+---
+
+## 8. The Oracle Protocol
+
+### 8.1 Role
+
+The oracle is a frontier language model. Its job is to read a report and emit a directive. It does not write code. It does not run tests. It does not see the bundle. It sees only:
+
+- The spec (in full, once per session).
+- The current report.
+- The previous directive, if any.
+- A short history of the last `N` reports and directives, if available.
+
+### 8.2 Inputs
+
+The oracle is invoked with a single JSON object:
+
+```json
+{
+  "spec": "<full spec text>",
+  "report": { ...current report... },
+  "history": [
+    {"directive": {...}, "report": {...}},
+    ...
+  ],
+  "constraints": {
+    "max_targets": 3,
+    "max_edit_distance": "moderate",
+    "preserve_passing_witnesses": true
+  }
+}
+```
+
+`history` is capped at `oracle.history_limit` entries (default 8).
+
+### 8.3 Output
+
+The oracle emits a single JSON object:
+
+```json
+{
+  "id": "d-2026-04-03-002",
+  "target": ["src/duration.rs"],
+  "intent": "Handle 'm' and 's' suffixes in either order.",
+  "constraints": [
+    "empty returns none",
+    "all valid inputs parse"
+  ],
+  "rationale": "Two hard witnesses fail because the parser assumes a canonical order. Support both orders.",
+  "priority": "high",
+  "expected_outcome": {
+    "witnesses_that_should_flip": ["compound minutes-seconds"],
+    "objective_target": 1.0
+  }
+}
+```
+
+### 8.4 Schema
+
+| Field | Type | Meaning |
+|---|---|---|
+| `id` | string | Unique identifier. Assay generates one if omitted. |
+| `target` | array of strings | Paths the implementer may modify. |
+| `intent` | string | One sentence describing the change. |
+| `constraints` | array of strings | Witness names that must not regress. |
+| `rationale` | string | Why this directive is correct. |
+| `priority` | string | `high`, `medium`, `low`. |
+| `expected_outcome` | object | What should change after applying. |
+
+### 8.5 Invariants
+
+- A directive must target at least one file that appears in the spec's `target` glob.
+- A directive must name at least one witness that is currently failing, unless `priority = "high"` and the rationale mentions "refine".
+- A directive must not name a witness that is currently passing, unless the rationale mentions "lock in".
+
+These invariants are enforced by Assay when it writes the directive to disk. Invalid directives are rejected with exit code 6.
+
+### 8.6 Persistence
+
+Directives are written to `directives/<id>.json` and `directives/latest.json`. The oracle reads `latest.json` at session start to see the previous directive.
+
+---
+
+## 9. The Refinement Loop
+
+### 9.1 Goal
+
+The loop's goal is twofold:
+
+1. **Satisfaction.** All hard witnesses pass.
+2. **Refinement.** The objective value increases monotonically until satisfaction, then plateaus at its maximum.
+
+### 9.2 Loop Steps
+
+```
+1. Assay verifies the current bundle.
+2. Assay emits a report.
+3. Oracle reads the report.
+4. Oracle emits a directive.
+5. Implementer reads the directive.
+6. Implementer modifies the code.
+7. Implementer commits.
+8. Repository is updated.
+9. Bundle is regenerated (via Repomix).
+10. Go to 1.
+```
+
+### 9.3 Refinement Signals
+
+Assay provides three signals to the oracle:
+
+- **Satisfaction.** Boolean. `true` iff all hard witnesses pass.
+- **Objective.** Scalar in `[0, 1]`. Weighted average of soft witnesses.
+- **Delta.** Change in satisfaction and objective from the previous report.
+
+### 9.4 Measured Objectives
+
+A spec may declare measured objectives:
+
+```
+objective {
+    minimises "build_time_ms" target 5000
+    maximises "test_coverage_percent" target 95
+}
+```
+
+The runner emits measured values:
+
+```
+ASSAY_MEASURED name=build_time_ms value=4200
+ASSAY_MEASURED name=test_coverage_percent value=87.5
+```
+
+Assay normalizes each measured value against its target:
+
+```
+normalized = clamp(value / target, 0, 1)   for minimises
+normalized = clamp(value / target, 0, 1)   for maximises
+```
+
+The composite objective is:
+
+```
+objective = Σ (wᵢ × softᵢ) + Σ (wⱼ × measuredⱼ) 
+            ─────────────────────────────────────
+                    Σ wᵢ + Σ wⱼ
+```
+
+### 9.5 Convergence Criteria
+
+The loop terminates when any of:
+
+- `satisfied = true` and `objective` has not increased for `K` consecutive iterations (default `K = 3`).
+- The user stops it.
+- The oracle emits a directive with `intent = "done"`.
+
+### 9.6 `assay loop`
+
+Assay provides a convenience command that orchestrates the loop:
+
+```
+assay loop <spec> --bundle <path> --repo <path> --oracle <provider> [--max-iterations N]
+```
+
+It:
+
+1. Verifies the bundle.
+2. Calls the oracle.
+3. Writes the directive.
+4. Invokes a user-configured command that applies the directive (typically a script that prompts AI Studio or the implementer).
+5. Re-pulls and re-bundles.
+6. Repeats.
+
+The user can customize step 4 via `.assay.toml`:
+
+```toml
+[loop]
+apply_command = "scripts/apply-directive.sh"
+repull_command = "scripts/repull.sh"
+rebundle_command = "npx repomix --output bundle.xml"
+```
+
+Assay does not implement apply, repull, or rebundle itself. It shells out to the user's commands.
+
+---
+
+## 10. CLI Reference
+
+### 10.1 Synopsis
+
+```
+assay <command> [options]
+```
+
+### 10.2 Commands
+
+| Command | Purpose |
+|---|---|
+| `assay verify <spec> --bundle <path>` | Verify a bundle against a spec. Emit a report. |
+| `assay report <spec> --bundle <path>` | Same as `verify`, but always exit 0. |
+| `assay diff <report-a> <report-b>` | Compare two reports. |
+| `assay oracle <spec> --report <path>` | Invoke the oracle. Emit a directive. |
+| `assay loop <spec>` | Run the loop. |
+| `assay init [<dir>]` | Scaffold a new project. |
+| `assay fmt <spec>` | Canonicalize a spec. |
+| `assay schema` | Print JSON schemas for reports and directives. |
+| `assay version` | Print version and exit. |
+
+### 10.3 `verify` Options
+
+| Flag | Meaning |
+|---|---|
+| `--bundle <path>` | Path to a bundle file. Required. |
+| `--out <path>` | Write report to this path. Default: stdout. |
+| `--frozen` | Strip nondeterministic fields. |
+| `--no-cache` | Skip cache lookup and write. |
+| `--runner <name>` | Override the runner declared in the spec. |
+| `--target <glob>` | Override the target glob. |
+| `--jobs <n>` | Parallelism for multi-target specs. Default: 1. |
+| `--quiet` | Suppress logs. |
+
+### 10.4 `oracle` Options
+
+| Flag | Meaning |
+|---|---|
+| `--report <path>` | Path to a report. Required. |
+| `--provider <name>` | `anthropic`, `openai`, `gemini`. Default: auto. |
+| `--model <name>` | Model identifier. Default: provider default. |
+| `--history <path>` | Directory of prior reports and directives. Default: `directives/`. |
+| `--out <path>` | Write directive to this path. Default: `directives/latest.json`. |
+| `--max-history <n>` | Max prior entries to include. Default: 8. |
+
+### 10.5 Exit Codes
+
+| Code | Meaning |
+|---|---|
+| 0 | Success (all hard witnesses pass). |
+| 1 | One or more hard witnesses failed. |
+| 2 | Spec parse error. |
+| 3 | Bundle parse error. |
+| 4 | I/O error. |
+| 5 | Runner failed to invoke. |
+| 6 | Oracle returned an invalid directive. |
+| 7 | Timeout. |
+| 64 | Invalid CLI usage. |
+
+---
+
+## 11. Configuration
+
+Assay reads `.assay.toml` from the working directory tree, walking upward until found. Environment variables override file values.
+
+```toml
+[assay]
+working_dir = "."
+cache_dir = ".assay-cache"
+
+[verifier]
+runner = "auto"
+timeout_seconds = 300
+max_parallel = 1
+emit_measured = true
+
+[bundle]
+format = "auto"
+max_bytes = 50000000
+include = ["src/**", "tests/**", "Cargo.toml", "package.json"]
+exclude = ["node_modules/**", "target/**", "dist/**"]
+
+[oracle]
+provider = "auto"
+model = "auto"
+history_limit = 8
+max_tokens = 8192
+temperature = 0.2
+timeout_seconds = 180
+
+[loop]
+apply_command = ""
+repull_command = ""
+rebundle_command = ""
+max_iterations = 50
+convergence_k = 3
+
+[ui]
+color = true
+unicode = true
+verbosity = "info"
+```
+
+### 11.1 Environment Variables
+
+| Variable | Effect |
+|---|---|
+| `ANTHROPIC_API_KEY` | Enables the Anthropic oracle. |
+| `OPENAI_API_KEY` | Enables the OpenAI oracle. |
+| `GEMINI_API_KEY` | Enables the Gemini oracle. |
+| `ASSAY_CACHE_DIR` | Overrides `assay.cache_dir`. |
+| `ASSAY_VERBOSE` | Sets `ui.verbosity = "debug"`. |
+| `ASSAY_NO_COLOR` | Sets `ui.color = false`. |
+
+---
+
+## 12. Security Model
+
+### 12.1 Trust Boundaries
+
+Assay trusts:
+
+- The user's spec.
+- The user's runner configuration.
+- The host operating system.
+
+Assay does not trust:
+
+- The bundle, as authored by arbitrary parties.
+- The oracle, as an external language model.
+- The implementer, as an autonomous agent.
+
+### 12.2 Filesystem
+
+Assay writes only to:
+
+- The path specified by `--out` (report or directive).
+- The cache directory.
+- Temporary directories created by `std::env::temp_dir()`, which are deleted on exit.
+
+Assay reads only from:
+
+- The spec path.
+- The bundle path.
+- The cache directory.
+
+Assay never follows symlinks outside the working directory. Bundle paths containing `..` are rejected.
+
+### 12.3 Network
+
+Assay makes network calls only in `assay oracle` mode, only to the configured provider's API endpoint, and only with the API key present in the environment. API keys are never written to disk, never logged, and never included in any output.
+
+### 12.4 Oracle Output
+
+The oracle's output is treated as untrusted. Assay validates it against the directive schema before writing it. Invalid directives cause exit code 6 and are not written.
+
+### 12.5 Runner Execution
+
+Runners are invoked with the user's permissions in a temporary directory. Assay does not sandbox runners; the user is responsible for the runner's safety. Users running untrusted bundles should invoke Assay inside a container.
+
+---
+
+## 13. Google AI Studio Integration
+
+### 13.1 Overview
+
+The intended deployment is:
+
+1. A user maintains a repository on GitHub.
+2. The repository is opened in AI Studio's Build mode.
+3. The AI Studio implementer writes code.
+4. The user pulls the repository locally.
+5. The user runs Assay to produce a report.
+6. The user runs the oracle to produce a directive.
+7. The directive is fed back into AI Studio as a prompt.
+8. Repeat.
+
+Assay automates steps 5–7 with `assay loop`.
+
+### 13.2 Bootstrap Prompt for AI Studio
+
+Paste this into AI Studio Build to generate the initial Assay repository:
+
+> Build a Rust CLI application named `assay`. It reads a specification file and a Repomix bundle, executes the specification's witnesses against the bundle using external runners (Rust, Python, Node.js, and a generic shell runner), and emits a JSON report describing which witnesses pass and which fail. It can also invoke a frontier language model to produce a JSON directive that describes the next change. The application must compile with `cargo build --release` on Rust 1.75+.
+>
+> Required modules: `bundle`, `spec`, `witness`, `runner`, `report`, `oracle`, `loop`. Required dependencies: `anyhow`, `clap`, `reqwest`, `serde`, `serde_json`, `toml`, `sha2`, `tempfile`. No others.
+>
+> Provide `assay` subcommands: `verify`, `report`, `diff`, `oracle`, `loop`, `init`, `fmt`, `schema`, `version`. Provide unit tests for the spec parser, the bundle parser, and the report fingerprinting. Provide one integration test that constructs a temporary crate and verifies it end to end. Provide a sample `examples/duration/` with a spec and a stub implementation.
+
+### 13.3 Repository Layout
+
+```
+assay/
+├── Cargo.toml
+├── Cargo.lock
+├── README.md
+├── LICENSE-MIT
+├── LICENSE-APACHE
+├── .github/workflows/ci.yml
+├── src/
+│   ├── main.rs
+│   ├── bundle/
+│   │   ├── mod.rs
+│   │   ├── repomix.rs
+│   │   ├── markdown.rs
+│   │   └── json.rs
+│   ├── spec/
+│   │   ├── mod.rs
+│   │   ├── parser.rs
+│   │   └── ast.rs
+│   ├── witness/
+│   │   ├── mod.rs
+│   │   └── result.rs
+│   ├── runner/
+│   │   ├── mod.rs
+│   │   ├── rust.rs
+│   │   ├── python.rs
+│   │   ├── node.rs
+│   │   └── shell.rs
+│   ├── report/
+│   │   ├── mod.rs
+│   │   ├── builder.rs
+│   │   └── fingerprint.rs
+│   ├── oracle/
+│   │   ├── mod.rs
+│   │   ├── client.rs
+│   │   ├── directive.rs
+│   │   └── providers/
+│   │       ├── anthropic.rs
+│   │       ├── openai.rs
+│   │       └── gemini.rs
+│   └── loop/
+│       ├── mod.rs
+│       └── orchestrator.rs
+├── examples/
+│   └── duration/
+│       ├── duration.assay
+│       └── src/
+│           └── lib.rs
+├── tests/
+│   ├── spec_parser.rs
+│   ├── bundle_parser.rs
+│   ├── report_fingerprint.rs
+│   └── end_to_end.rs
+└── docs/
+    ├── spec.md
+    ├── grammar.ebnf
+    ├── report.schema.json
+    └── directive.schema.json
+```
+
+---
+
+## 14. Complete Example
+
+### 14.1 The Spec
+
+`examples/duration/duration.assay`:
+
+```
+spec "duration"
+
+target "src/lib.rs"
+runner rust
+lang rust
+
+fixture VALID {
+    const VALID: &[(&str, u64)] = &[
+        ("1s", 1),
+        ("30s", 30),
+        ("1m", 60),
+        ("2m30s", 150),
+        ("1h", 3600),
+        ("1h30m", 5400),
+    ];
+}
+
+fixture INVALID {
+    const INVALID: &[&str] = &[
+        "",
+        "s",
+        "1",
+        "1x",
+        "-1s",
+        "1h30",
+    ];
+}
+
+witness "empty input" hard {
+    parse_duration("").is_none()
+}
+
+witness "single second" hard {
+    parse_duration("1s") == Ok(1)
+}
+
+witness "compound minutes-seconds" hard {
+    parse_duration("2m30s") == Ok(150)
+}
+
+witness "compound hours-minutes" hard {
+    parse_duration("1h30m") == Ok(5400)
+}
+
+witness "all valid inputs parse" hard {
+    VALID.iter().all(|(s, n)| parse_duration(s) == Ok(*n))
+}
+
+witness "all invalid inputs reject" hard {
+    INVALID.iter().all(|s| parse_duration(s).is_err())
+}
+
+witness "no panics on arbitrary input" soft weight 1.0 {
+    [
+        "\u{0000}", "１２３", "1s1s", "9999999999999999999s",
+    ].iter().all(|s| parse_duration(s).is_err())
+}
+
+objective {
+    minimises "lines_of_code" target 200
+}
+```
+
+### 14.2 The Implementation Stub
+
+`examples/duration/src/lib.rs`:
+
+```rust
+pub fn parse_duration(_s: &str) -> Result<u64, String> {
+    unimplemented!()
+}
+```
+
+### 14.3 Verification
+
+```bash
+$ assay verify examples/duration/duration.assay --bundle examples/duration/bundle.xml
+{
+  "assay_version": "2.0.0",
+  "spec": { "name": "duration", ... },
+  "summary": {
+    "total": 7,
+    "passed": 0,
+    "failed": 6,
+    "errored": 0,
+    "hard_total": 6,
+    "hard_passed": 0,
+    "soft_total": 1,
+    "soft_passed": 0,
+    "satisfied": false,
+    "objective": 0.0
+  },
+  ...
+}
+```
+
+Exit code 1.
+
+### 14.4 Oracle Invocation
+
+```bash
+$ assay oracle examples/duration/duration.assay --report report.json
+{
+  "id": "d-2026-04-03-001",
+  "target": ["src/lib.rs"],
+  "intent": "Implement parse_duration to parse sequences of numeric-amount+unit-suffix pairs (s for seconds, m for minutes, h for hours), summing their values.",
+  "constraints": [],
+  "rationale": "All six hard witnesses concern parse_duration. The stub is unimplemented. The simplest implementation parses the string left to right, extracting (amount, unit) pairs and summing.",
+  "priority": "high",
+  "expected_outcome": {
+    "witnesses_that_should_flip": [
+      "empty input",
+      "single second",
+      "compound minutes-seconds",
+      "compound hours-minutes",
+      "all valid inputs parse",
+      "all invalid inputs reject"
+    ],
+    "objective_target": 1.0
+  }
+}
+```
+
+### 14.5 Applying the Directive
+
+The user pastes the `intent` field into AI Studio. The implementer writes:
+
+```rust
+pub fn parse_duration(s: &str) -> Result<u64, String> {
+    if s.is_empty() { return Err("empty".into()); }
+    let mut total = 0u64;
+    let mut num = String::new();
+    for c in s.chars() {
+        if c.is_ascii_digit() {
+            num.push(c);
+        } else {
+            let n: u64 = num.parse().map_err(|_| "no number")?;
+            let mult = match c {
+                's' => 1,
+                'm' => 60,
+                'h' => 3600,
+                _ => return Err("bad unit".into()),
+            };
+            total += n * mult;
+            num.clear();
+        }
+    }
+    if !num.is_empty() { return Err("trailing number".into()); }
+    Ok(total)
+}
+```
+
+### 14.6 Re-Verification
+
+```bash
+$ assay verify examples/duration/duration.assay --bundle examples/duration/bundle.xml
+{
+  ...
+  "summary": {
+    "satisfied": true,
+    "objective": 1.0,
+    ...
+  }
+}
+```
+
+Exit code 0. The loop completes.
+
+---
+
+## 15. Non-Goals
+
+Assay is not:
+
+- A build system. Use `cargo`, `npm`, `make`, or whatever the target uses.
+- A package manager. Use the target's native tooling.
+- A version control system. Use `git`.
+- A code editor. Use AI Studio or an IDE.
+- A linter. Use the target's linter.
+- A formatter. Use the target's formatter.
+- A code reviewer. Reviews are for humans.
+- A specification language. Specs are witnesses; they are written in the target's language.
+- A test framework. Runners are test frameworks. Assay invokes them.
+- A scheduler. Loops are the user's to orchestrate.
+
+Assay does one thing: it takes a spec and a bundle, executes the spec's witnesses against the bundle, and emits a structured report. Everything else is downstream.
+
+---
+
+## 16. Roadmap
+
+**v2.0** — This document.
+
+**v2.1** — Additional runners: Go, Java, Ruby, PHP, C#. Bundle adapters for `git archive`, `tar`, `zip`, and plain directories. Cache compression.
+
+**v2.2** — Parallel target verification. Per-witness caching (finer grain than per-run caching). Report diffing with structural awareness (identifies which witnesses changed for which reasons).
+
+**v2.3** — Incremental verification: skip witnesses whose dependencies did not change. Requires a per-witness dependency declaration.
+
+**v2.4** — Oracle session memory: Assay keeps a rolling summary of the last `N` directives and reports, and provides it to the oracle as a compressed context. This reduces token usage and improves directive coherence.
+
+**v3.0** — Verifiable refinement: witnesses may declare formal predicates over the objective function (e.g., "this witness can only improve"). Assay tracks which directives moved the objective and which did not, and shapes future oracle prompts accordingly.
+
+Everything after v3.0 is speculative and will be driven by real use.
+
+---
+
+## 17. Glossary
+
+**Assay.** The program described by this document.
+
+**Bundle.** A single file containing an entire repository. Typically produced by Repomix.
+
+**Delta.** The change between two reports. Present in a report only if a previous report is available.
+
+**Directive.** The oracle's output. A JSON document describing the next change.
+
+**Fingerprint.** A SHA-256 hash over a canonical serialization. Used to identify specs, bundles, and reports.
+
+**Fixture.** A named block of language-specific code injected into a generated witness module.
+
+**Hard witness.** A witness that must pass for the spec to be considered satisfied.
+
+**Implementer.** The agent that writes code. Typically AI Studio.
+
+**Loop.** One full cycle: directive → implementer → bundle → assay → report → oracle.
+
+**Objective.** A scalar in `[0, 1]` measuring soft witness satisfaction and measured objectives.
+
+**Oracle.** The frontier language model that reads reports and emits directives.
+
+**Report.** Assay's output. A JSON document describing witness statuses and the objective.
+
+**Runner.** An external program that Assay invokes to execute witnesses in a specific language.
+
+**Soft witness.** A witness that contributes to the objective but does not gate satisfaction.
+
+**Spec.** A text file declaring targets, runners, witnesses, fixtures, and objectives.
+
+**Satisfaction.** `true` iff every hard witness passes.
+
+**Witness.** A claim about the bundle. Compiled into a test in the target language.
+
+---
+
+## 18. Final Note
+
+The one-sentence description of Assay is:
+
+> **Given a spec and a bundle, execute the spec's witnesses against the bundle, and report the result deterministically.**
+
+The oracle's one-sentence description is:
+
+> **Given a report, produce a directive that moves the code toward satisfaction and refinement.**
+
+The loop's one-sentence description is:
+
+> **Turn the code into a verifiable math problem, and solve it by iterating with an oracle and an implementer.**
+
+Everything else in this document is detail. If the implementation of Assay grows beyond what is needed to support these three sentences, it is wrong.
+
+Assay is deliberately small. It is small enough that one person can read all of it, understand it, and trust it. That is the point. Verification only works when the verifier is simple enough to trust.
+
+— *End of Specification*
+</file>
+
+<file path="tsconfig.json">
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "experimentalDecorators": true,
+    "useDefineForClassFields": false,
+    "module": "ESNext",
+    "lib": [
+      "ES2022",
+      "DOM",
+      "DOM.Iterable"
+    ],
+    "skipLibCheck": true,
+    "moduleResolution": "bundler",
+    "isolatedModules": true,
+    "moduleDetection": "force",
+    "allowJs": true,
+    "jsx": "react-jsx",
+    "paths": {
+      "@/*": [
+        "./*"
+      ]
+    },
+    "allowImportingTsExtensions": true,
+    "noEmit": true
+  }
+}
+</file>
+
+<file path="vite.config.ts">
+import tailwindcss from '@tailwindcss/vite';
+import react from '@vitejs/plugin-react';
+import path from 'path';
+import {defineConfig} from 'vite';
+
+export default defineConfig(() => {
+  return {
+    plugins: [react(), tailwindcss()],
+    resolve: {
+      alias: {
+        '@': path.resolve(__dirname, '.'),
+      },
+    },
+    server: {
+      // HMR is disabled in AI Studio via DISABLE_HMR env var.
+      // Do not modifyâfile watching is disabled to prevent flickering during agent edits.
+      hmr: process.env.DISABLE_HMR !== 'true',
+      // Disable file watching when DISABLE_HMR is true to save CPU during agent edits.
+      watch: process.env.DISABLE_HMR === 'true' ? null : {},
+    },
+  };
+});
+</file>
+
+</files>

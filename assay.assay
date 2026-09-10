@@ -28,10 +28,11 @@ witness "bundle parser reads repomix xml" hard {
     std::fs::create_dir_all(&dir).unwrap();
     let p = dir.join("b.xml");
     std::fs::write(&p, s).unwrap();
-    match bundle::parse_file(&p) {
-        Ok(b) => b.files.get("a.rs").map(|c| c == "hello").unwrap_or(false),
-        Err(_) => false,
-    }
+    bundle::parse_file(&p)
+        .ok()
+        .and_then(|b| b.files.get("a.rs").cloned())
+        .map(|c| c == "hello")
+        .unwrap_or(false)
 }
 
 witness "bundle fingerprint deterministic" hard {
@@ -40,14 +41,9 @@ witness "bundle fingerprint deterministic" hard {
     std::fs::create_dir_all(&dir).unwrap();
     let p = dir.join("b.xml");
     std::fs::write(&p, s).unwrap();
-    let b1 = bundle::parse_file(&p);
-    let b2 = bundle::parse_file(&p);
-    match (b1, b2) {
-        (Ok(a), Ok(b)) => {
-            a.fingerprint == b.fingerprint && a.fingerprint.starts_with("sha256:")
-        }
-        _ => false,
-    }
+    let b1 = bundle::parse_file(&p).unwrap();
+    let b2 = bundle::parse_file(&p).unwrap();
+    b1.fingerprint == b2.fingerprint && b1.fingerprint.starts_with("sha256:")
 }
 
 witness "report canonical excludes fingerprint" hard {
