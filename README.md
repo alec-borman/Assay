@@ -1,3 +1,7 @@
+Here is the updated README, accurate to the current state of the repo. Same voice, same structure, only the facts changed.
+
+---
+
 # Assay
 
 **The verifier for AI-written code.**
@@ -31,12 +35,37 @@ The unit of progress is a verified witness. Not a merged PR. Not a code review. 
 
 ---
 
+## Day Zero
+
+Assay verifies Assay.
+
+```
+$ cargo run -- verify assay.assay --bundle repomix-output.xml
+{
+  "spec":   { "name": "assay", "fingerprint": "sha256:db710f10..." },
+  "bundle": { "file_count": 59, "byte_count": 175353,
+              "fingerprint": "sha256:ea08d00c..." },
+  "summary": { "total": 6, "passed": 6, "failed": 0,
+               "hard_total": 6, "hard_passed": 6,
+               "satisfied": true },
+  "report_fingerprint": "sha256:7eca0a86..."
+}
+```
+
+Exit code 0. That report was produced by an actual `cargo test` run inside a temp crate that Assay built and populated from its own source, extracted from a Repomix bundle. Nothing stubbed. Nothing mocked. Six witnesses, six passes.
+
+The bootstrap problem is now closed. What remains is the oracle client and the loop driver, which together retire the manual protocol currently used to run the loop by hand.
+
+---
+
 ## Quickstart
 
-Install Rust 1.75 or later, then:
+Install Rust 1.75 or later. Clone the repository and build:
 
 ```bash
-cargo install --git https://github.com/YOUR-HANDLE/assay
+git clone https://github.com/YOUR-HANDLE/assay
+cd assay
+cargo build --release
 ```
 
 Write a spec. Here is the smallest possible one:
@@ -70,19 +99,18 @@ npx repomix
 Verify:
 
 ```bash
-assay verify greet.assay --bundle bundle.xml
+assay verify greet.assay --bundle repomix-output.xml
 ```
 
-Exit code is 1 (the stub is not implemented). Run the oracle:
+Exit code is 1. The stub is not implemented.
+
+To produce a report regardless of satisfaction, pass `--out`:
 
 ```bash
-export ANTHROPIC_API_KEY=sk-ant-...
-assay oracle greet.assay --report report.json
+assay verify greet.assay --bundle repomix-output.xml --out report.json
 ```
 
-The oracle emits a directive. Paste the `intent` field into your implementer's prompt. The implementer writes code. Re-bundle. Re-verify. Repeat.
-
-When the report says `"satisfied": true`, you are done.
+The oracle client is not yet implemented. Until it is, the loop is run by hand: read the report, write the next directive yourself, hand it to the implementer, re-bundle, re-verify. See [docs/spec.md](./docs/spec.md) for the full protocol.
 
 ---
 
@@ -142,17 +170,17 @@ Full grammar and semantics are in [SPEC.md](./SPEC.md).
 
 ## Commands
 
-| Command | Purpose |
-|---|---|
-| `assay verify <spec> --bundle <path>` | Verify a bundle. Emit a report. Exit 0 or 1. |
-| `assay report <spec> --bundle <path>` | Same as verify, but always exit 0. |
-| `assay diff <report-a> <report-b>` | Compare two reports. |
-| `assay oracle <spec> --report <path>` | Invoke the oracle. Emit a directive. |
-| `assay loop <spec>` | Run the full loop. |
-| `assay init [<dir>]` | Scaffold a new project. |
-| `assay fmt <spec>` | Canonicalize a spec. |
-| `assay schema` | Print JSON schemas. |
-| `assay version` | Print version. |
+| Command | Purpose | Status |
+|---|---|---|
+| `assay verify <spec> --bundle <path>` | Verify a bundle. Emit a report. Exit 0 or 1. | implemented |
+| `assay report <spec> --bundle <path>` | Same as verify, but always exit 0. | stub |
+| `assay diff <report-a> <report-b>` | Compare two reports. | stub |
+| `assay oracle <spec> --report <path>` | Invoke the oracle. Emit a directive. | not implemented |
+| `assay loop <spec>` | Run the full loop. | not implemented |
+| `assay init [<dir>]` | Scaffold a new project. | stub |
+| `assay fmt <spec>` | Canonicalize a spec. | stub |
+| `assay schema` | Print JSON schemas. | stub |
+| `assay version` | Print version. | implemented |
 
 Exit codes:
 
@@ -174,11 +202,11 @@ Exit codes:
 
 Assay has three jobs and nothing else.
 
-**1. Parse.** It reads a spec and a bundle. A bundle is a single file containing an entire repository, produced by [Repomix](https://github.com/yamadashy/repomix) or a similar packer. Assay understands the Repomix format natively.
+**1. Parse.** It reads a spec and a bundle. A bundle is a single file containing an entire repository, produced by [Repomix](https://github.com/yamadashy/repomix) or a similar packer. Assay understands the Repomix format natively, including CDATA escaping.
 
 **2. Execute.** It extracts the spec's target files from the bundle into a temporary directory. It generates a witness module in the target language. It injects the module into the temporary copy. It invokes the language's own test runner. It captures the output.
 
-**3. Report.** It builds a JSON document listing every witness, its status, the objective score, and a fingerprint over the whole thing. Two runs over the same spec and bundle produce byte-identical reports.
+**3. Report.** It builds a JSON document listing every witness, its status, the objective score, and a fingerprint over the whole thing. Two runs over the same spec and bundle produce byte-identical reports, except for timestamps.
 
 The oracle is a separate step. It reads the report, calls a frontier model, and writes a directive. It never sees the code. It cannot be fooled.
 
@@ -186,21 +214,30 @@ The oracle is a separate step. It reads the report, calls a frontier model, and 
 
 ## Status
 
-Assay is under active construction. It is being built using its own protocol, which is a bootstrap paradox: to verify Assay, you need Assay.
+Assay is under active construction, and it is being built using its own protocol. Day Zero has been reached: Assay verifies Assay.
 
-Current state:
+**Working:**
 
 - [x] Crate compiles. CLI recognizes all nine subcommands.
 - [x] Canonical types for `Spec`, `Witness`, `Bundle`, `Report`, `Directive`.
-- [x] Spec parser implemented.
-- [ ] Spec parser tested (the witness suite is next).
-- [ ] Bundle parser.
-- [ ] Report fingerprinting.
-- [ ] Rust runner.
-- [ ] Oracle client.
-- [ ] Self-hosting: Assay verifying Assay.
+- [x] Spec parser, with tests.
+- [x] Bundle parser (Repomix XML, CDATA-aware), with tests.
+- [x] Report builder and canonical JSON fingerprint, with tests.
+- [x] Rust runner (extract, inject, invoke, parse), with tests.
+- [x] `verify` orchestrator and CLI wiring.
+- [x] 25 tests green.
+- [x] Self-hosting: Assay verifies Assay, 6 of 6 witnesses.
 
-Until the loop is self-hosted, verification is performed by hand. See [docs/Day-Zero.md](./docs/Day-Zero.md) for the manual protocol (coming soon).
+**Not yet implemented:**
+
+- [ ] Oracle client (`src/oracle/client.rs` and the three providers).
+- [ ] Loop orchestrator (`src/orchestration/orchestrator.rs`).
+- [ ] Python, Node, and Shell runners (currently stubs).
+- [ ] Bundle adapters for Markdown, JSON, tarball, and directory.
+- [ ] Cache, `.assay.toml`, timeouts, report delta, `--frozen` strips.
+- [ ] The `report`, `diff`, `init`, `fmt`, and `schema` subcommands.
+
+Until the oracle client and loop driver land, the loop is run by hand. The manual protocol is documented in [docs/Assay_Lite.md](./docs/Assay_Lite.md).
 
 The roadmap is in [SPEC.md §16](./SPEC.md).
 
@@ -208,7 +245,7 @@ The roadmap is in [SPEC.md §16](./SPEC.md).
 
 ## Design Principles
 
-**Verification is deterministic.** No wall-clock time in reports. No environment-dependent behavior. All maps serialized in key order. All floats rounded to a fixed precision. Two runs, two identical outputs.
+**Verification is deterministic.** No wall-clock time in the report body. No environment-dependent behavior. All maps serialized in key order. Two runs, two identical reports.
 
 **Verification is language-agnostic.** Assay does not parse source code. It hands witness bodies to the language's own test runner. Rust, Python, TypeScript, Go, shell. Whatever the target uses.
 
@@ -224,7 +261,7 @@ The roadmap is in [SPEC.md §16](./SPEC.md).
 
 Assay trusts the spec, the runner configuration, and the host operating system. It does not trust the bundle, the oracle, or the implementer.
 
-- The oracle's output is validated against a JSON schema before being written to disk.
+- The oracle's output will be validated against a JSON schema before being written to disk. This is not yet implemented.
 - API keys are read from the environment only. They are never written to disk, never logged, and never included in any output.
 - Assay writes only to the paths specified by `--out`, the cache directory, and a temporary directory that is deleted on exit.
 - Bundle paths containing `..` are rejected.
@@ -265,12 +302,6 @@ at your option.
 
 Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in this project shall be dual-licensed as above, without any additional terms or conditions.
 
----
-
-## Acknowledgments
-
 Inspired by the observation that verification only works when the verifier is simple enough to trust.
 
 Assay is deliberately small. It is small enough that one person can read all of it, understand it, and trust it. That is the point.
-
-The only way to build software that outlives you is to stop writing it.
