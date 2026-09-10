@@ -19,3 +19,8 @@ impl Bundle {
         }
     }
 }
+
+pub fn parse_file(path: &std::path::Path) -> anyhow::Result<Bundle> {
+    let content = std::fs::read_to_string(path)?;
+    crate::bundle::repomix::parse(&content)
+}
