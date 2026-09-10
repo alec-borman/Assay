@@ -1,6 +1,3 @@
-Here is the updated README, accurate to the current state of the repo. Same voice, same structure, only the facts changed.
-
----
 
 # Assay
 
