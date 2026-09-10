@@ -110,3 +110,28 @@ fn test_w14_bundle_parser_handles_cdata_escape_and_nested_terminator() {
     assert_eq!(a, original,
         "file content must be reconstructed exactly");
 }
+
+#[test]
+fn test_dump_bundle_paths() {
+    let p = std::path::Path::new("repomix-output.xml");
+    if !p.exists() {
+        eprintln!("DIAG: no repomix-output.xml in cwd");
+        return;
+    }
+    let b = match parse_file(p) {
+        Ok(b) => b,
+        Err(e) => {
+            eprintln!("DIAG: parse error: {:?}", e);
+            panic!("bundle parse failed");
+        }
+    };
+    let mut paths: Vec<_> = b.files.keys().cloned().collect();
+    paths.sort();
+    eprintln!("DIAG: parsed {} files", paths.len());
+    for path in &paths {
+        eprintln!("DIAG: {}", path);
+    }
+    if !b.files.contains_key("src/lib.rs") {
+        eprintln!("DIAG: !!! src/lib.rs is MISSING from the map");
+    }
+}
