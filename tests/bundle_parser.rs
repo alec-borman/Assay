@@ -63,3 +63,21 @@ fn test_w10_bundle_fingerprint_order_independent() {
     let bb = parse_file(fb.path()).unwrap();
     assert_eq!(ba.fingerprint, bb.fingerprint);
 }
+
+#[test]
+fn test_w13_bundle_parser_handles_terminator_inside_cdata() {
+    // One file's content contains the literal "</file>".
+    // The parser must not truncate the block there.
+    let xml = r#"<file_summary/>
+<directory_structure>x</directory_structure>
+<files>
+<file path="a.rs"><![CDATA[fn f() { let s = "</file>"; }]]></file>
+<file path="b.rs"><![CDATA[hello]]></file>
+</files>"#;
+    let f = write_temp(xml);
+    let bundle = parse_file(f.path()).unwrap();
+    assert_eq!(bundle.files.len(), 2);
+    assert!(bundle.files["a.rs"].contains("</file>"),
+        "file a must retain the literal terminator string");
+    assert_eq!(bundle.files["b.rs"], "hello");
+}

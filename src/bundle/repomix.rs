@@ -53,10 +53,31 @@ fn extract_files(content: &str) -> Result<BTreeMap<String, String>> {
         let path = extract_path_attr(attr_str)?;
 
         let body_start = tag_end + 1;
-        let body_end = files_block[body_start..]
-            .find("</file>")
-            .ok_or_else(|| anyhow!("missing </file> for path {}", path))?
-            + body_start;
+
+        // Repomix wraps each file's content in a CDATA section.
+        // A literal "</file>" inside that content (for example, in
+        // this very file) must not be mistaken for the block
+        // terminator. If a CDATA opener is present, skip past its
+        // matching close before scanning for "</file>".
+        const CDATA_OPEN: &str = "<![CDATA[";
+        const CDATA_CLOSE: &str = "]]>";
+
+        let body_end = if let Some(open_rel) = files_block[body_start..].find(CDATA_OPEN) {
+            let after_open = body_start + open_rel + CDATA_OPEN.len();
+            let close_rel = files_block[after_open..]
+                .find(CDATA_CLOSE)
+                .ok_or_else(|| anyhow!("unterminated CDATA for path {}", path))?;
+            let after_close = after_open + close_rel + CDATA_CLOSE.len();
+            files_block[after_close..]
+                .find("</file>")
+                .ok_or_else(|| anyhow!("missing </file> for path {}", path))?
+                + after_close
+        } else {
+            files_block[body_start..]
+                .find("</file>")
+                .ok_or_else(|| anyhow!("missing </file> for path {}", path))?
+                + body_start
+        };
 
         let body = &files_block[body_start..body_end];
         let content_str = extract_cdata(body);
