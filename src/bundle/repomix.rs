@@ -92,7 +92,6 @@ fn extract_files(content: &str) -> Result<BTreeMap<String, String>> {
             let body = &files_block[body_start..terminator];
             (extract_cdata(body), terminator + "</file>".len())
         } else {
-            // Find the true </file> tag for a plain XML file
             let mut search_pos = body_start;
             let terminator = loop {
                 let rel = files_block[search_pos..]
@@ -102,16 +101,25 @@ fn extract_files(content: &str) -> Result<BTreeMap<String, String>> {
                 let after = &files_block[term + "</file>".len()..];
                 let after_trimmed = after.trim_start();
 
-                // True terminator is either followed by another valid <file> tag or is at the end
+                // 1. The genuine closing </files> tag has only whitespace following it
                 if after_trimmed.is_empty() {
                     break term;
                 }
+                if let Some(rest) = after_trimmed.strip_prefix("</files>") {
+                    if rest.trim().is_empty() {
+                        break term;
+                    }
+                }
 
+                // 2. A genuine next file tag is on its own line ending with a newline
                 if after_trimmed.starts_with("<file ") {
                     if let Some(gt) = after_trimmed.find('>') {
                         let candidate_attr = &after_trimmed["<file ".len()..gt];
                         if extract_path_attr(candidate_attr).is_ok() {
-                            break term;
+                            let after_gt = &after_trimmed[gt + 1..];
+                            if after_gt.starts_with('\n') || after_gt.starts_with("\r\n") {
+                                break term;
+                            }
                         }
                     }
                 }
@@ -130,6 +138,46 @@ fn extract_files(content: &str) -> Result<BTreeMap<String, String>> {
     Ok(files)
 }
 
+fn extract_path_attr(attr: &str) -> Result<String> {
+    let attr = attr.trim();
+    let eq = attr
+        .find('=')
+        .ok_or_else(|| anyhow!("malformed file attribute: {}", attr))?;
+    let value = attr[eq + 1..].trim();
+    let value = value
+        .strip_prefix('"')
+        .and_then(|s| s.strip_suffix('"'))
+        .ok_or_else(|| anyhow!("expected quoted path in: {}", attr))?;
+
+    // Normalize Windows backslashes to forward slashes for cross-platform determinism
+    Ok(value.replace('\\', "/"))
+}
+
+fn extract_cdata(body: &str) -> String {
+    const OPEN: &str = "<![CDATA[";
+    const CLOSE: &str = "]]>";
+
+    if !body.contains(OPEN) {
+        return body.trim().to_string();
+    }
+
+    let mut result = String::new();
+    let mut cursor = 0;
+
+    while let Some(open_rel) = body[cursor..].find(OPEN) {
+        let content_start = cursor + open_rel + OPEN.len();
+        let close_rel = match body[content_start..].find(CLOSE) {
+            Some(p) => p,
+            None => break,
+        };
+        let content_end = content_start + close_rel;
+        result.push_str(&body[content_start..content_end]);
+        cursor = content_end + CLOSE.len();
+    }
+
+    clean_plain_body(&result)
+}
+
 fn clean_plain_body(body: &str) -> String {
     let mut s = body;
     if let Some(stripped) = s.strip_prefix("\r\n") {
@@ -145,61 +193,6 @@ fn clean_plain_body(body: &str) -> String {
     }
 
     s.to_string()
-}
-
-fn extract_path_attr(attr: &str) -> Result<String> {
-    let attr = attr.trim();
-    let eq = attr
-        .find('=')
-        .ok_or_else(|| anyhow!("malformed file attribute: {}", attr))?;
-    let value = attr[eq + 1..].trim();
-    let value = value
-        .strip_prefix('"')
-        .and_then(|s| s.strip_suffix('"'))
-        .ok_or_else(|| anyhow!("expected quoted path in: {}", attr))?;
-        
-    // Normalize Windows backslashes to forward slashes for cross-platform determinism
-    Ok(value.replace('\\', "/"))
-}
-
-fn extract_cdata(body: &str) -> String {
-    const OPEN: &str = "<![CDATA[";
-    const CLOSE: &str = "]]>";
-    
-    if !body.contains(OPEN) {
-        return body.trim().to_string();
-    }
-
-    let mut result = String::new();
-    let mut cursor = 0;
-    
-    // Stitch multiple CDATA blocks together (Repomix escapes `]]>` as `]]]]><![CDATA[>`)
-    while let Some(open_rel) = body[cursor..].find(OPEN) {
-        let content_start = cursor + open_rel + OPEN.len();
-        let close_rel = match body[content_start..].find(CLOSE) {
-            Some(p) => p,
-            None => break,
-        };
-        let content_end = content_start + close_rel;
-        result.push_str(&body[content_start..content_end]);
-        cursor = content_end + CLOSE.len();
-    }
-    
-    // Strip only the single leading and trailing newline inserted by Repomix around the content
-    let mut final_result = result.as_str();
-    if let Some(stripped) = final_result.strip_prefix("\r\n") {
-        final_result = stripped;
-    } else if let Some(stripped) = final_result.strip_prefix('\n') {
-        final_result = stripped;
-    }
-
-    if let Some(stripped) = final_result.strip_suffix("\r\n") {
-        final_result = stripped;
-    } else if let Some(stripped) = final_result.strip_suffix('\n') {
-        final_result = stripped;
-    }
-    
-    final_result.to_string()
 }
 
 fn compute_fingerprint(files: &BTreeMap<String, String>) -> String {
