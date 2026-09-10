@@ -136,7 +136,8 @@ pub fn parse_file(path: &std::path::Path) -> Result<Spec> {
                 name = Some(extract_quoted(rest)?);
             }
             "target" => {
-                targets.push(extract_quoted(rest)?);
+                // Add the .replace() call here
+                targets.push(extract_quoted(rest)?.replace('\\', "/"));
             }
             "runner" => {
                 if runner.is_some() {

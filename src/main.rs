@@ -1,6 +1,5 @@
 use clap::{Parser, Subcommand};
 use anyhow::Result;
-use assay::*;
 
 #[derive(Parser)]
 #[command(name = "assay")]

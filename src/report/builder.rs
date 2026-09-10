@@ -21,7 +21,8 @@ pub fn build(
 ) -> Report {
     let spec_info = SpecInfo {
         name: spec.name.clone(),
-        path: spec_path.to_string_lossy().into_owned(),
+        // Normalize the path for cross-platform deterministic hashing
+        path: spec_path.to_string_lossy().replace('\\', "/"),
         fingerprint: spec.fingerprint(),
         targets: spec.targets.clone(),
         runner: spec.runner.clone(),

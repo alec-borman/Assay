@@ -92,7 +92,9 @@ fn extract_path_attr(attr: &str) -> Result<String> {
         .strip_prefix('"')
         .and_then(|s| s.strip_suffix('"'))
         .ok_or_else(|| anyhow!("expected quoted path in: {}", attr))?;
-    Ok(value.to_string())
+        
+    // Normalize Windows backslashes to forward slashes
+    Ok(value.replace('\\', "/"))
 }
 
 fn extract_cdata(body: &str) -> String {
