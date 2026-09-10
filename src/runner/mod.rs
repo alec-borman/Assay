@@ -3,6 +3,7 @@ pub mod python;
 pub mod node;
 pub mod shell;
 
+use crate::bundle::Bundle;
 use crate::spec::Spec;
 use crate::witness::{Witness, WitnessResult};
 use std::path::Path;
@@ -18,7 +19,18 @@ pub struct RunOutput {
 
 pub trait Runner {
     fn name(&self) -> &'static str;
-    fn prepare(&self, dir: &Path, spec: &Spec, witnesses: &[Witness]) -> Result<()>;
+    fn prepare(
+        &self,
+        dir: &Path,
+        spec: &Spec,
+        bundle: &Bundle,
+        witnesses: &[Witness],
+    ) -> Result<()>;
     fn invoke(&self, dir: &Path, args: &[String]) -> Result<RunOutput>;
     fn parse(&self, output: &RunOutput, witnesses: &[Witness]) -> Vec<WitnessResult>;
 }
+
+pub use rust::RustRunner;
+pub use python::PythonRunner;
+pub use node::NodeRunner;
+pub use shell::ShellRunner;
