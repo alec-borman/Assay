@@ -29,6 +29,9 @@ fn extract_summary(content: &str) -> BTreeMap<String, String> {
 }
 
 fn extract_files(content: &str) -> Result<BTreeMap<String, String>> {
+    const CDATA_OPEN: &str = "<![CDATA[";
+    const CDATA_CLOSE: &str = "]]>";
+
     let mut files = BTreeMap::new();
 
     let files_start = content
@@ -56,25 +59,43 @@ fn extract_files(content: &str) -> Result<BTreeMap<String, String>> {
 
         let body_start = tag_end + 1;
 
-        // The real closing </file> is the last one before the next
-        // <file tag or the end of the files block. Any </file> that
-        // appears earlier is inside the file's content (whether in
-        // a CDATA section or not).
-        let next_file = files_block[body_start..]
-            .find("<file ")
-            .map(|p| p + body_start)
-            .unwrap_or(files_block.len());
+        // Walk the CDATA sections. Repomix escapes any "]]>" inside
+        // file content as "]]]]><![CDATA[>", splitting one logical
+        // CDATA into several physical sections. Skip each section
+        // until we reach the last one.
+        let mut scan = body_start;
+        let after_cdata = loop {
+            let open_pos = files_block[scan..]
+                .find(CDATA_OPEN)
+                .ok_or_else(|| anyhow!("missing CDATA for path {}", path))?
+                + scan;
+            let content_start = open_pos + CDATA_OPEN.len();
+            let close_pos = files_block[content_start..]
+                .find(CDATA_CLOSE)
+                .ok_or_else(|| anyhow!("missing CDATA close for path {}", path))?
+                + content_start;
+            let after_close = close_pos + CDATA_CLOSE.len();
 
-        let body_end = files_block[body_start..next_file]
-            .rfind("</file>")
+            if files_block[after_close..].starts_with(CDATA_OPEN) {
+                scan = after_close;
+                continue;
+            }
+            break after_close;
+        };
+
+        // The next </file> after the final CDATA close is the real
+        // terminator. Any </file> inside the content was consumed
+        // by the CDATA walk above.
+        let terminator = files_block[after_cdata..]
+            .find("</file>")
             .ok_or_else(|| anyhow!("missing </file> for path {}", path))?
-            + body_start;
+            + after_cdata;
 
-        let body = &files_block[body_start..body_end];
+        let body = &files_block[body_start..terminator];
         let content_str = extract_cdata(body);
 
         files.insert(path, content_str);
-        cursor = body_end + "</file>".len();
+        cursor = terminator + "</file>".len();
     }
 
     Ok(files)
