@@ -52,8 +52,7 @@ fn test_rust_runner_passing_witness() {
     let runner = RustRunner::new();
     runner.prepare(tmp.path(), &spec, &bundle, &spec.witnesses).unwrap();
 
-    let out = runner.invoke(tmp.path(), &["--quiet".to_string()]).unwrap();
-    eprintln!("\n===CHILD-STDOUT===\n{}\n===CHILD-STDERR===\n{}\n===EXIT={}===\n", out.stdout, out.stderr, out.exit_code);
+    let out = runner.invoke(tmp.path(), &[]).unwrap();
     let results = runner.parse(&out, &spec.witnesses);
 
     assert_eq!(results.len(), 1);
@@ -74,7 +73,7 @@ fn test_rust_runner_failing_witness() {
     let runner = RustRunner::new();
     runner.prepare(tmp.path(), &spec, &bundle, &spec.witnesses).unwrap();
 
-    let out = runner.invoke(tmp.path(), &["--quiet".to_string()]).unwrap();
+    let out = runner.invoke(tmp.path(), &[]).unwrap();
     let results = runner.parse(&out, &spec.witnesses);
 
     assert_eq!(results.len(), 1);
@@ -98,7 +97,7 @@ fn test_rust_runner_multiple_witnesses() {
     let runner = RustRunner::new();
     runner.prepare(tmp.path(), &spec, &bundle, &spec.witnesses).unwrap();
 
-    let out = runner.invoke(tmp.path(), &["--quiet".to_string()]).unwrap();
+    let out = runner.invoke(tmp.path(), &[]).unwrap();
     let results = runner.parse(&out, &spec.witnesses);
 
     assert_eq!(results.len(), 3);
