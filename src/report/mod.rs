@@ -113,6 +113,13 @@ impl Report {
             .expect("Value must be serializable to String")
     }
 
+    /// Canonical JSON including the report_fingerprint field.
+    /// Used for the --frozen output path.
+    pub fn canonical_json_with_fingerprint(&self) -> String {
+        serde_json::to_string(self)
+            .expect("Report must serialize to String")
+    }
+
     /// Compute the fingerprint of this report's canonical body.
     /// Does not mutate self. Caller assigns the result to the
     /// report_fingerprint field before emitting the report.

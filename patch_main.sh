@@ -1,3 +1,5 @@
+#!/bin/bash
+cat << 'INNER' > src/main.rs
 use clap::{Parser, Subcommand};
 use anyhow::Result;
 use assay::*;
@@ -130,3 +132,4 @@ fn main() -> Result<()> {
     }
     Ok(())
 }
+INNER

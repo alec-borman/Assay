@@ -5,3 +5,4 @@ pub mod runner;
 pub mod report;
 pub mod oracle;
 pub mod orchestration;
+pub mod verify;
