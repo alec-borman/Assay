@@ -59,33 +59,24 @@ fn extract_files(content: &str) -> Result<BTreeMap<String, String>> {
 
         let body_start = tag_end + 1;
 
-        // Walk the CDATA sections. Repomix escapes any "]]>" inside
-        // file content as "]]]]><![CDATA[>", splitting one logical
-        // CDATA into several physical sections. Skip each section
-        // until we reach the last one.
         let mut scan = body_start;
         let after_cdata = loop {
-            let open_pos = files_block[scan..]
-                .find(CDATA_OPEN)
-                .ok_or_else(|| anyhow!("missing CDATA for path {}", path))?
-                + scan;
-            let content_start = open_pos + CDATA_OPEN.len();
-            let close_pos = files_block[content_start..]
-                .find(CDATA_CLOSE)
-                .ok_or_else(|| anyhow!("missing CDATA close for path {}", path))?
-                + content_start;
-            let after_close = close_pos + CDATA_CLOSE.len();
+            let next_close = files_block[scan..].find("</file>");
+            let next_cdata = files_block[scan..].find(CDATA_OPEN);
 
-            if files_block[after_close..].starts_with(CDATA_OPEN) {
-                scan = after_close;
-                continue;
+            match (next_close, next_cdata) {
+                (Some(c), Some(d)) if d < c => {
+                    let content_start = scan + d + CDATA_OPEN.len();
+                    let close_pos = files_block[content_start..]
+                        .find(CDATA_CLOSE)
+                        .ok_or_else(|| anyhow!("missing CDATA close for path {}", path))?;
+                    scan = content_start + close_pos + CDATA_CLOSE.len();
+                }
+                (Some(_), _) => break scan,
+                (None, _) => return Err(anyhow!("missing </file> for path {}", path)),
             }
-            break after_close;
         };
 
-        // The next </file> after the final CDATA close is the real
-        // terminator. Any </file> inside the content was consumed
-        // by the CDATA walk above.
         let terminator = files_block[after_cdata..]
             .find("</file>")
             .ok_or_else(|| anyhow!("missing </file> for path {}", path))?
