@@ -1,11 +1,15 @@
-<div align="center">
+# ASSAY
 
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
+A Universal Verifier and Oracle Protocol for AI-Assisted Software Development.
 
-  <h1>Built with AI Studio</h2>
+## Overview
 
-  <p>The fastest path from prompt to production with Gemini.</p>
+Assay is a program that turns source code into a verifiable mathematical artifact.
+It takes a specification and a bundle of code, executes the specification's witnesses, and produces a structured report. It can also invoke an oracle (frontier language model) to produce a directive on how to improve the code.
 
-  <a href="https://aistudio.google.com/apps">Start building</a>
+## Usage
 
-</div>
+```bash
+cargo build --release
+./target/release/assay --help
+```

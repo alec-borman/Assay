@@ -1,0 +1,61 @@
+spec "duration"
+
+target "src/lib.rs"
+runner rust
+lang rust
+
+fixture VALID {
+    const VALID: &[(&str, u64)] = &[
+        ("1s", 1),
+        ("30s", 30),
+        ("1m", 60),
+        ("2m30s", 150),
+        ("1h", 3600),
+        ("1h30m", 5400),
+    ];
+}
+
+fixture INVALID {
+    const INVALID: &[&str] = &[
+        "",
+        "s",
+        "1",
+        "1x",
+        "-1s",
+        "1h30",
+    ];
+}
+
+witness "empty input" hard {
+    parse_duration("").is_none()
+}
+
+witness "single second" hard {
+    parse_duration("1s") == Ok(1)
+}
+
+witness "compound minutes-seconds" hard {
+    parse_duration("2m30s") == Ok(150)
+}
+
+witness "compound hours-minutes" hard {
+    parse_duration("1h30m") == Ok(5400)
+}
+
+witness "all valid inputs parse" hard {
+    VALID.iter().all(|(s, n)| parse_duration(s) == Ok(*n))
+}
+
+witness "all invalid inputs reject" hard {
+    INVALID.iter().all(|s| parse_duration(s).is_err())
+}
+
+witness "no panics on arbitrary input" soft weight 1.0 {
+    [
+        "\u{0000}", "１２３", "1s1s", "9999999999999999999s",
+    ].iter().all(|s| parse_duration(s).is_err())
+}
+
+objective {
+    minimises "lines_of_code" target 200
+}
