@@ -1,0 +1,62 @@
+spec "assay"
+
+target "src/lib.rs"
+runner rust
+lang rust
+
+witness "minimal spec parses" hard {
+    let s = "spec \"x\"\ntarget \"a\"\nrunner rust\nlang rust\nwitness \"w\" hard {\ntrue\n}\n";
+    let dir = std::env::temp_dir().join("assay_self_w1");
+    std::fs::create_dir_all(&dir).unwrap();
+    let p = dir.join("x.assay");
+    std::fs::write(&p, s).unwrap();
+    spec::parse_file(&p).is_ok()
+}
+
+witness "missing target errors" hard {
+    let s = "spec \"x\"\nrunner rust\nlang rust\n";
+    let dir = std::env::temp_dir().join("assay_self_w2");
+    std::fs::create_dir_all(&dir).unwrap();
+    let p = dir.join("x.assay");
+    std::fs::write(&p, s).unwrap();
+    spec::parse_file(&p).is_err()
+}
+
+witness "bundle parser reads repomix xml" hard {
+    let s = "<file_summary/>\n<files>\n<file path=\"a.rs\"><![CDATA[hello]]></file>\n</files>";
+    let dir = std::env::temp_dir().join("assay_self_w3");
+    std::fs::create_dir_all(&dir).unwrap();
+    let p = dir.join("b.xml");
+    std::fs::write(&p, s).unwrap();
+    match bundle::parse_file(&p) {
+        Ok(b) => b.files.get("a.rs").map(|c| c == "hello").unwrap_or(false),
+        Err(_) => false,
+    }
+}
+
+witness "bundle fingerprint deterministic" hard {
+    let s = "<file_summary/>\n<files>\n<file path=\"a.rs\"><![CDATA[hello]]></file>\n</files>";
+    let dir = std::env::temp_dir().join("assay_self_w4");
+    std::fs::create_dir_all(&dir).unwrap();
+    let p = dir.join("b.xml");
+    std::fs::write(&p, s).unwrap();
+    let b1 = bundle::parse_file(&p);
+    let b2 = bundle::parse_file(&p);
+    match (b1, b2) {
+        (Ok(a), Ok(b)) => {
+            a.fingerprint == b.fingerprint && a.fingerprint.starts_with("sha256:")
+        }
+        _ => false,
+    }
+}
+
+witness "report canonical excludes fingerprint" hard {
+    let r = report::Report::empty_for_test("s", "b");
+    let j = r.canonical_json();
+    !j.contains("report_fingerprint")
+}
+
+witness "report fingerprint deterministic" hard {
+    let r = report::Report::empty_for_test("s", "b");
+    r.compute_fingerprint() == r.compute_fingerprint()
+}
