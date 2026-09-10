@@ -81,3 +81,32 @@ fn test_w13_bundle_parser_handles_terminator_inside_cdata() {
         "file a must retain the literal terminator string");
     assert_eq!(bundle.files["b.rs"], "hello");
 }
+#[test]
+fn test_w14_bundle_parser_handles_cdata_escape_and_nested_terminator() {
+    // A single file whose content contains both the literal
+    // "</file>" and the literal "]]>". Repomix escapes the
+    // latter by splitting the CDATA section. The parser must
+    // reconstruct the original content and still find the
+    // closing </file>.
+    let original = "fn f() { let a = \"</file>\"; let b = \"]]>\"; }";
+    // Simulate Repomix's escaping of "]]>":
+    let escaped = "fn f() { let a = \"</file>\"; let b = \"]]]]><![CDATA[>\"; }";
+    let xml = format!(
+        "<file_summary/>\n\
+         <directory_structure>x</directory_structure>\n\
+         <files>\n\
+         <file path=\"a.rs\"><![CDATA[{}]]></file>\n\
+         </files>",
+        escaped
+    );
+    let f = write_temp(&xml);
+    let bundle = parse_file(f.path()).unwrap();
+    assert_eq!(bundle.files.len(), 1);
+    let a = &bundle.files["a.rs"];
+    assert!(a.contains("</file>"),
+        "file must retain the literal terminator string");
+    assert!(a.contains("]]>"),
+        "file must retain the literal CDATA close string");
+    assert_eq!(a, original,
+        "file content must be reconstructed exactly");
+}

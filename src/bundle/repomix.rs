@@ -54,30 +54,23 @@ fn extract_files(content: &str) -> Result<BTreeMap<String, String>> {
 
         let body_start = tag_end + 1;
 
-        // Repomix wraps each file's content in a CDATA section.
-        // A literal "</file>" inside that content (for example, in
-        // this very file) must not be mistaken for the block
-        // terminator. If a CDATA opener is present, skip past its
-        // matching close before scanning for "</file>".
-        const CDATA_OPEN: &str = "<![CDATA[";
-        const CDATA_CLOSE: &str = "]]>";
+        // The real closing </file> is the LAST one before the
+        // next <file or the end of the files block. Any </file>
+        // earlier in the slice is inside the file's content.
+        let next_block = files_block[body_start..]
+            .find("<file ")
+            .map(|p| p + body_start)
+            .or_else(|| {
+                files_block[body_start..]
+                    .find("</files>")
+                    .map(|p| p + body_start)
+            })
+            .unwrap_or(files_block.len());
 
-        let body_end = if let Some(open_rel) = files_block[body_start..].find(CDATA_OPEN) {
-            let after_open = body_start + open_rel + CDATA_OPEN.len();
-            let close_rel = files_block[after_open..]
-                .find(CDATA_CLOSE)
-                .ok_or_else(|| anyhow!("unterminated CDATA for path {}", path))?;
-            let after_close = after_open + close_rel + CDATA_CLOSE.len();
-            files_block[after_close..]
-                .find("</file>")
-                .ok_or_else(|| anyhow!("missing </file> for path {}", path))?
-                + after_close
-        } else {
-            files_block[body_start..]
-                .find("</file>")
-                .ok_or_else(|| anyhow!("missing </file> for path {}", path))?
-                + body_start
-        };
+        let body_end = files_block[body_start..next_block]
+            .rfind("</file>")
+            .ok_or_else(|| anyhow!("missing </file> for path {}", path))?
+            + body_start;
 
         let body = &files_block[body_start..body_end];
         let content_str = extract_cdata(body);
@@ -105,20 +98,19 @@ fn extract_path_attr(attr: &str) -> Result<String> {
 fn extract_cdata(body: &str) -> String {
     const OPEN: &str = "<![CDATA[";
     const CLOSE: &str = "]]>";
-    if let Some(start) = body.find(OPEN) {
-        let after = start + OPEN.len();
-        if let Some(end) = body[after..].find(CLOSE) {
-            let mut inner = &body[after..after + end];
-            if inner.starts_with('\n') {
-                inner = &inner[1..];
-            }
-            if inner.ends_with('\n') {
-                inner = &inner[..inner.len() - 1];
-            }
-            return inner.to_string();
-        }
+    let mut result = String::new();
+    let mut cursor = 0;
+    while let Some(open_rel) = body[cursor..].find(OPEN) {
+        let content_start = cursor + open_rel + OPEN.len();
+        let close_rel = match body[content_start..].find(CLOSE) {
+            Some(p) => p,
+            None => break,
+        };
+        let content_end = content_start + close_rel;
+        result.push_str(&body[content_start..content_end]);
+        cursor = content_end + CLOSE.len();
     }
-    body.trim().to_string()
+    result
 }
 
 fn compute_fingerprint(files: &BTreeMap<String, String>) -> String {
