@@ -59,37 +59,92 @@ fn extract_files(content: &str) -> Result<BTreeMap<String, String>> {
 
         let body_start = tag_end + 1;
 
-        let mut scan = body_start;
-        let after_cdata = loop {
-            let next_close = files_block[scan..].find("</file>");
-            let next_cdata = files_block[scan..].find(CDATA_OPEN);
+        // Determine if this file entry is wrapped in CDATA
+        let rest_from_body = &files_block[body_start..];
+        let has_cdata = rest_from_body.trim_start().starts_with(CDATA_OPEN);
 
-            match (next_close, next_cdata) {
-                (Some(c), Some(d)) if d < c => {
-                    let content_start = scan + d + CDATA_OPEN.len();
-                    let close_pos = files_block[content_start..]
-                        .find(CDATA_CLOSE)
-                        .ok_or_else(|| anyhow!("missing CDATA close for path {}", path))?;
-                    scan = content_start + close_pos + CDATA_CLOSE.len();
+        let (content_str, next_cursor) = if has_cdata {
+            let mut scan = body_start;
+            let after_cdata = loop {
+                let open_pos = files_block[scan..]
+                    .find(CDATA_OPEN)
+                    .ok_or_else(|| anyhow!("missing CDATA for path {}", path))?
+                    + scan;
+                let content_start = open_pos + CDATA_OPEN.len();
+                let close_pos = files_block[content_start..]
+                    .find(CDATA_CLOSE)
+                    .ok_or_else(|| anyhow!("missing CDATA close for path {}", path))?
+                    + content_start;
+                let after_close = close_pos + CDATA_CLOSE.len();
+
+                if files_block[after_close..].starts_with(CDATA_OPEN) {
+                    scan = after_close;
+                    continue;
                 }
-                (Some(_), _) => break scan,
-                (None, _) => return Err(anyhow!("missing </file> for path {}", path)),
-            }
+                break after_close;
+            };
+
+            let terminator = files_block[after_cdata..]
+                .find("</file>")
+                .ok_or_else(|| anyhow!("missing </file> for path {}", path))?
+                + after_cdata;
+
+            let body = &files_block[body_start..terminator];
+            (extract_cdata(body), terminator + "</file>".len())
+        } else {
+            // Find the true </file> tag for a plain XML file
+            let mut search_pos = body_start;
+            let terminator = loop {
+                let rel = files_block[search_pos..]
+                    .find("</file>")
+                    .ok_or_else(|| anyhow!("missing </file> for path {}", path))?;
+                let term = search_pos + rel;
+                let after = &files_block[term + "</file>".len()..];
+                let after_trimmed = after.trim_start();
+
+                // True terminator is either followed by another valid <file> tag or is at the end
+                if after_trimmed.is_empty() {
+                    break term;
+                }
+
+                if after_trimmed.starts_with("<file ") {
+                    if let Some(gt) = after_trimmed.find('>') {
+                        let candidate_attr = &after_trimmed["<file ".len()..gt];
+                        if extract_path_attr(candidate_attr).is_ok() {
+                            break term;
+                        }
+                    }
+                }
+
+                search_pos = term + "</file>".len();
+            };
+
+            let body = &files_block[body_start..terminator];
+            (clean_plain_body(body), terminator + "</file>".len())
         };
 
-        let terminator = files_block[after_cdata..]
-            .find("</file>")
-            .ok_or_else(|| anyhow!("missing </file> for path {}", path))?
-            + after_cdata;
-
-        let body = &files_block[body_start..terminator];
-        let content_str = extract_cdata(body);
-
         files.insert(path, content_str);
-        cursor = terminator + "</file>".len();
+        cursor = next_cursor;
     }
 
     Ok(files)
+}
+
+fn clean_plain_body(body: &str) -> String {
+    let mut s = body;
+    if let Some(stripped) = s.strip_prefix("\r\n") {
+        s = stripped;
+    } else if let Some(stripped) = s.strip_prefix('\n') {
+        s = stripped;
+    }
+
+    if let Some(stripped) = s.strip_suffix("\r\n") {
+        s = stripped;
+    } else if let Some(stripped) = s.strip_suffix('\n') {
+        s = stripped;
+    }
+
+    s.to_string()
 }
 
 fn extract_path_attr(attr: &str) -> Result<String> {
